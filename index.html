@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <title>Annotation Survey</title>
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.6.0/nouislider.min.css" />
+</head>
+
+<body>
+  <a href="#cards-container" class="skip-link">Skip to papers</a>
+
+  <!-- ── Header ─────────────────────────────────────────── -->
+  <header class="top" role="banner">
+    <div class="top__inner">
+      <div class="top__title">
+        <div class="title-row" style="display: flex; align-items: center; gap: 10px; white-space: nowrap;">
+          <h1 style="margin: 0;">Annotation Survey</h1>
+          <a href="https://ieeexplore.ieee.org/abstract/document/11130921" target="_blank" rel="noopener"
+            class="read-paper-btn-inline">
+            Read Paper
+          </a>
+        </div>
+        <p>
+          A Survey on Annotations in Information Visualization: Empirical
+          Insights, Applications, and Challenges
+        </p>
+        <p class="top__authors">
+          <strong>Md Dilshadur Rahman</strong>, Bhavana Doppalapudi, Ghulam Jilani Quadri, Paul Rosen
+          <br>
+          <em>IEEE Transactions on Visualization and Computer Graphics (TVCG)</em>
+        </p>
+      </div>
+
+      <div class="top__actions">
+        <div class="top__controls">
+          <div class="search-bar-container">
+            <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14"
+              height="14" aria-hidden="true">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input type="text" id="search-bar" placeholder="Search titles, abstracts, authors…" />
+          </div>
+
+          <button id="download-csv-button" class="btn" type="button">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"
+              style="vertical-align:middle;margin-right:5px;flex-shrink:0">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            Download CSV
+          </button>
+
+          <!-- Dark Mode Toggle -->
+          <div class="toggle-switch" title="Toggle dark mode">
+            <input type="checkbox" id="dark-mode-toggle" />
+            <label for="dark-mode-toggle" class="toggle-label">
+              <span class="toggle-inner"></span>
+              <span class="toggle-switch-icon sun">&#9728;</span>
+              <span class="toggle-switch-icon moon">&#9790;</span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Main layout: sidebar + content ─────────────────── -->
+  <main role="main" class="layout">
+    <aside class="sidebar" aria-label="Filters">
+      <div class="sidebar__inner">
+
+        <!-- Papers count + chart -->
+        <div id="total-papers-container" class="filter-container filter-container--chart">
+          <div class="filter-container__heading">
+            <span class="filter-container__label">Papers Selected</span>
+            <span id="total-papers" class="badge">0</span>
+          </div>
+          <canvas id="papers-chart"></canvas>
+        </div>
+
+        <!-- Year Range -->
+        <div id="year-filter-container" class="filter-container">
+          <div class="filter-container__heading">
+            <span class="filter-container__label">Year Range</span>
+            <span class="year-values">
+              <span id="year-min">1994</span>&ndash;<span id="year-max">2024</span>
+            </span>
+          </div>
+          <div id="year-range-slider"></div>
+        </div>
+
+        <!-- Clear Filters Button -->
+        <div style="display: flex; justify-content: flex-end; margin-bottom: 10px;">
+          <button id="clear-filters-btn" class="btn btn--danger" type="button" style="width: 100%;">Clear
+            Filters</button>
+        </div>
+
+        <!-- Scrollable filter groups -->
+        <div class="filter-sections-wrapper">
+
+          <!-- Venues -->
+          <div id="venue-filter-container" class="filter-container">
+            <div class="filter-header">
+              <h4>Venues</h4>
+              <button class="select-all-button" id="select-all-venues">Deselect All</button>
+            </div>
+          </div>
+
+          <!-- Categories -->
+          <div id="other-filters-container" class="filter-container">
+            <div class="filter-header">
+              <h4>Categories</h4>
+              <button class="select-all-button" id="select-all-types">Deselect All</button>
+            </div>
+          </div>
+
+          <!-- Annotation Types -->
+          <div id="annotation-filter-container" class="filter-container">
+            <div class="filter-header">
+              <h4>Annotation Types</h4>
+              <button class="select-all-button" id="select-all-annotation-types">Deselect All</button>
+            </div>
+            <div class="annotation-filter">
+              <label class="annotation-filter-item">
+                <input type="checkbox" id="textual-checkbox" class="annotation-checkbox" checked />
+                Textual
+              </label>
+              <label class="annotation-filter-item">
+                <input type="checkbox" id="graphical-checkbox" class="annotation-checkbox" checked />
+                Graphical
+              </label>
+            </div>
+          </div>
+
+          <!-- Annotation Generation -->
+          <div id="annotation-generation-filter-container" class="filter-container">
+            <div class="filter-header">
+              <h4>Annotation Generation</h4>
+              <button class="select-all-button" id="select-all-annotation-generation">Deselect All</button>
+            </div>
+            <div class="annotation-generation-filter">
+              <label class="annotation-generation-filter-item">
+                <input type="checkbox" id="manual-checkbox" class="annotation-generation-checkbox" checked />
+                Manual
+              </label>
+              <label class="annotation-generation-filter-item">
+                <input type="checkbox" id="automatic-checkbox" class="annotation-generation-checkbox" checked />
+                Automatic
+              </label>
+              <label class="annotation-generation-filter-item">
+                <input type="checkbox" id="semi-automatic-checkbox" class="annotation-generation-checkbox" checked />
+                Semi-automatic
+              </label>
+            </div>
+          </div>
+
+        </div><!-- /filter-sections-wrapper -->
+      </div><!-- /sidebar__inner -->
+    </aside>
+
+    <!-- ── Cards grid ───────────────────────────────────── -->
+    <div class="content">
+      <div class="results-bar" id="results-bar" aria-live="polite">
+        <span id="results-count">0 papers</span>
+        <div class="results-bar__right">
+          <label class="results-sort-label" for="sort-select">Sort:</label>
+          <select id="sort-select" class="results-sort-select" aria-label="Sort papers">
+            <option value="default">Default</option>
+            <option value="year-desc">Year ↓</option>
+            <option value="year-asc">Year ↑</option>
+            <option value="title-asc">Title A–Z</option>
+          </select>
+        </div>
+      </div>
+      <div class="cards-container" id="cards-container"></div>
+    </div>
+  </main>
+
+  <!-- ── Paper Detail Drawer ──────────────────────────── -->
+  <div class="drawer-overlay" id="drawer-overlay" aria-hidden="true">
+    <div class="drawer" id="paper-drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" tabindex="-1">
+      <div class="drawer__header">
+        <span class="drawer__header-label">Paper Details</span>
+        <button class="drawer__close" id="drawer-close" aria-label="Close panel">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+      <div class="drawer__body" id="drawer-body"></div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.6.0/nouislider.min.js"></script>
+  <script src="js/script.js"></script>
+</body>
+
+</html>
