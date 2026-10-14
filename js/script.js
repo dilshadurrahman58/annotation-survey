@@ -242,11 +242,9 @@
 
   async function load() {
     let rows;
-    let live = true;
     try {
       rows = parseCSV(await fetchText(SHEET_URL, 9000));
     } catch (err) {
-      live = false;
       try {
         rows = parseCSV(await fetchText(SNAPSHOT_URL, 15000));
       } catch (err2) {
@@ -254,9 +252,6 @@
         return;
       }
     }
-    $("#data-source").textContent = live
-      ? "It is loaded live, so this page always matches the latest coding."
-      : "The live sheet could not be reached, so this is a saved copy.";
 
     records = rows.map(toRecord);
     const years = records.map((r) => r.year).filter((y) => y != null);

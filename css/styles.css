@@ -545,6 +545,15 @@ html[data-theme="dark"] .theme-toggle .i-moon {
 }
 
 .hero__authors a {
+  color: var(--ink-2);
+}
+
+.hero__authors a:hover {
+  color: var(--ink);
+}
+
+/* first author */
+.hero__authors a:first-child {
   color: var(--ink);
   font-weight: 500;
 }
