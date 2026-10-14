@@ -1,973 +1,1096 @@
-// Define the toggleDiv function
-function toggleDiv(button, abstractDiv) {
-  let contentDiv = document.getElementById(abstractDiv);
-  let buttonElem = document.getElementById(button);
-  if (contentDiv.style.display === "none" || contentDiv.style.display === "") {
-    buttonElem.innerHTML = "▼";
-    contentDiv.style.display = "block";
-  } else {
-    buttonElem.innerHTML = "►";
-    contentDiv.style.display = "none";
-  }
-}
+/* Annotation Survey · paper browser
+   Loads the survey's coding spreadsheet, then lets readers search, filter,
+   and open every paper. All state lives in the URL so views can be shared. */
+(() => {
+  "use strict";
 
-document.addEventListener("DOMContentLoaded", () => {
-  const url =
+  // ── Data sources ──────────────────────────────────────────────
+  const SHEET_URL =
     "https://docs.google.com/spreadsheets/d/e/2PACX-1vSDf3Uc4wp0I_O-uZ_mDCOmHAaktsU7MXdw6VpvN8im_5XDN_rmShVYhuAbJbQLj2fUBjmjmxjKmIjP/pub?gid=1840793528&single=true&output=csv";
+  // Saved copy of the sheet, used only if the live sheet can't be reached
+  const SNAPSHOT_URL = "data/papers.csv";
 
-  const cardsContainer = document.getElementById("cards-container");
-  const venueFilterContainer = document.getElementById(
-    "venue-filter-container",
-  );
-  const otherFiltersContainer = document.getElementById(
-    "other-filters-container",
-  );
-  const searchBar = document.getElementById("search-bar");
-  const totalPapersSpan = document.getElementById("total-papers");
-  // const yearSlider = document.getElementById('year-slider');
-  // const yearRangeLabel = document.getElementById('year-range-label');
-  const darkModeToggle = document.getElementById("dark-mode-toggle");
-
-  // Add event listeners for Annotation Types checkboxes
-  const textualCheckbox = document.getElementById("textual-checkbox");
-  const graphicalCheckbox = document.getElementById("graphical-checkbox");
-
-  textualCheckbox.addEventListener("change", filterCards);
-  graphicalCheckbox.addEventListener("change", filterCards);
-
-  const manualCheckbox = document.getElementById("manual-checkbox");
-  const automaticCheckbox = document.getElementById("automatic-checkbox");
-  const semiAutomaticCheckbox = document.getElementById(
-    "semi-automatic-checkbox",
-  );
-
-  manualCheckbox.addEventListener("change", filterCards);
-  automaticCheckbox.addEventListener("change", filterCards);
-  semiAutomaticCheckbox.addEventListener("change", filterCards);
-
-  // Load sound effects
-  const clickSound = new Audio("sounds/click.mp3");
-  const modalOpenSound = new Audio("sounds/modal-open.mp3");
-  const filterSelectSound = new Audio("sounds/filter-select.mp3");
-
-  const otherFields = [
-    "Empirical Study",
-    "Tool, Technique, and Framework",
-    "Storytelling and Narrative Visualizations",
-    "Collaborative Sensemaking and Data Analysis",
-    "Exploratory Data Analysis",
-    "Provenance",
-    "Uncertainty Visualization",
-    "Interaction and User Engagement",
+  // Research areas, in the order the survey presents them
+  const AREAS = [
+    { key: "Survey", short: "Survey", color: "--c-survey" },
+    { key: "Empirical Study", short: "Empirical study", color: "--c-empirical" },
+    { key: "Tool, Technique, and Framework", short: "Tool & technique", color: "--c-tools" },
+    { key: "Storytelling and Narrative Visualizations", short: "Storytelling", color: "--c-story" },
+    { key: "Collaborative Sensemaking and Data Analysis", short: "Collaboration", color: "--c-collab" },
+    { key: "Exploratory Data Analysis", short: "Exploratory analysis", color: "--c-eda" },
+    { key: "Provenance", short: "Provenance", color: "--c-prov" },
+    { key: "Dashboard", short: "Dashboard", color: "--c-dash" },
+    { key: "Uncertainty Visualization", short: "Uncertainty", color: "--c-uncert" },
+    { key: "Interaction and User Engagement", short: "Interaction & engagement", color: "--c-interact" },
   ];
-  const alwaysShowFields = [
-    "Annotation Types",
-    "Annotation Subcategories",
-    "Annotation Generation Method",
-  ];
-  let otherVenues = [];
-  let data = []; // Global variable to store parsed data
-  let filteredData = []; // Global variable to store filtered data
-  let activeTagFilter = null; // Currently active tag filter field name
-  let _shownRecords = []; // Tracks the records currently rendered as cards
+  const AREA = Object.fromEntries(AREAS.map((a) => [a.key, a]));
+  const TYPES = ["Textual", "Graphical"];
+  const GENS = ["Manual", "Semi-automatic", "Automatic"];
+  const NONE = "Not specified";
 
-  const tagFieldColors = {
-    "Empirical Study": "color-green",
-    "Tool, Technique, and Framework": "color-orange",
-    "Storytelling and Narrative Visualizations": "color-violet",
-    "Collaborative Sensemaking and Data Analysis": "color-teal",
-    "Exploratory Data Analysis": "color-indigo",
-    Provenance: "color-amber",
-    "Uncertainty Visualization": "color-red",
-    "Interaction and User Engagement": "color-cyan",
+  // Spelling fixes for venue names as they appear in the sheet
+  const VENUE_FIX = {
+    "Human Comptuer Interaction": "Human Computer Interaction",
+    "Visual Communicaiton Quarterly": "Visual Communication Quarterly",
+    "Computer Graphics and Application": "Computer Graphics and Applications",
+  };
+  const VENUE_FULL = {
+    TVCG: "IEEE Transactions on Visualization and Computer Graphics",
+    CHI: "ACM Conference on Human Factors in Computing Systems (CHI)",
+    "CHI Extended Abstract": "Extended Abstracts of the ACM CHI Conference",
+    CGF: "Computer Graphics Forum",
+    VAST: "IEEE Conference on Visual Analytics Science and Technology (VAST)",
+    PacificVis: "IEEE Pacific Visualization Symposium (PacificVis)",
+    UIST: "ACM Symposium on User Interface Software and Technology (UIST)",
+    "Computer Graphics and Applications": "IEEE Computer Graphics and Applications",
   };
 
-  // Clear Filters logic — resets every filter back to initial "show all" state
-  function clearFilters() {
-    // Uncheck then re-check all filter checkboxes (triggers no change events)
-    document
-      .querySelectorAll(
-        ".venue-checkbox, .other-checkbox, .annotation-checkbox, .annotation-generation-checkbox",
+  // IEEE VIS 2026 talk for this survey (Boston, Eastern Time)
+  const TALK = {
+    end: new Date("2026-11-10T13:36:00-05:00"),
+    when: "Tue, Nov 10, 13:24 ET",
+    room: "Hall Essex North",
+    url: "https://ieeevis.org/year/2026/program/paper/9ee5993b-1fb5-45f5-9969-77a5d942929f",
+  };
+
+  // ── Elements ──────────────────────────────────────────────────
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+  const els = {
+    search: $("#search"),
+    sort: $("#sort"),
+    cards: $("#cards"),
+    count: $("#count"),
+    chips: $("#chips"),
+    empty: $("#empty"),
+    filters: $("#filters"),
+    filtersBody: $("#filters-body"),
+    filtersOpen: $("#filters-open"),
+    filtersOpenN: $("#filters-open-n"),
+    filtersDone: $("#filters-done"),
+    scrim: $("#filters-scrim"),
+    yearFrom: $("#year-from"),
+    yearTo: $("#year-to"),
+    yearsReset: $("#years-reset"),
+    svg: $("#timeline-svg"),
+    detail: $("#detail"),
+    detailBody: $("#detail-body"),
+    detailPos: $("#detail-pos"),
+    detailPrev: $("#detail-prev"),
+    detailNext: $("#detail-next"),
+    toast: $("#toast"),
+    status: $(".status"),
+  };
+
+  // ── State ─────────────────────────────────────────────────────
+  const FACETS = ["cats", "types", "gen", "venues"];
+  const PARAM = { cats: "area", types: "type", gen: "gen", venues: "venue" };
+  const state = {
+    q: "",
+    cats: new Set(),
+    types: new Set(),
+    gen: new Set(),
+    venues: new Set(),
+    y0: null,
+    y1: null,
+    sort: "newest",
+    view: "grid",
+  };
+  let records = [];
+  let results = [];
+  let minYear = 0;
+  let maxYear = 0;
+  let terms = [];
+  let termRe = null;
+  let venuesExpanded = false;
+  let detailId = null;
+  let detailPushed = false;
+  const cardEls = new Map();
+  const optValues = { cats: [], types: [], gen: [], venues: [] };
+
+  // ── Helpers ───────────────────────────────────────────────────
+  const clean = (s) => (s == null ? "" : String(s)).replace(/\s+/g, " ").trim();
+
+  // The sheet keeps some names in BibTeX form, e.g. D{\"o}rk or Hornb{\ae}k
+  const LATEX_ACCENT = {
+    "'": "\u0301", "`": "\u0300", "^": "\u0302", '"': "\u0308", "~": "\u0303", "=": "\u0304",
+    ".": "\u0307", u: "\u0306", v: "\u030C", H: "\u030B", c: "\u0327", k: "\u0328", r: "\u030A",
+  };
+  const LATEX_LETTER = {
+    ae: "æ", AE: "Æ", oe: "œ", OE: "Œ", aa: "å", AA: "Å", ss: "ß", o: "ø", O: "Ø", l: "ł", L: "Ł", i: "ı", j: "ȷ",
+  };
+  function delatex(s) {
+    if (!s.includes("\\")) return s;
+    return s
+      .replace(/\\(ae|AE|oe|OE|aa|AA|ss|o|O|l|L|i|j)(?![a-zA-Z])\s?/g, (m, c) => LATEX_LETTER[c])
+      .replace(/\\([`'^"~=.uvHckr])\s*\{?\s*([A-Za-zıȷ])\s*\}?/g, (m, a, c) =>
+        (c === "ı" ? "i" : c === "ȷ" ? "j" : c) + LATEX_ACCENT[a],
       )
-      .forEach((cb) => {
-        cb.checked = true;
+      .replace(/\\&/g, "&")
+      .replace(/[{}]/g, "")
+      .normalize("NFC");
+  }
+  const blank = (s) => /^[-–—]?$/.test(clean(s));
+  const fold = (s) =>
+    String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const esc = (s) =>
+    String(s).replace(/[&<>"']/g, (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+    );
+  const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+  // Escape text and wrap search terms in <mark>, ignoring accents like the search does
+  function hl(text) {
+    const chars = Array.from(String(text || ""));
+    if (!termRe) return esc(chars.join(""));
+    const folded = chars.map((c) => fold(c)[0] || c).join("");
+    let out = "";
+    let last = 0;
+    termRe.lastIndex = 0;
+    for (const m of folded.matchAll(termRe)) {
+      out += esc(chars.slice(last, m.index).join(""));
+      out += `<mark>${esc(chars.slice(m.index, m.index + m[0].length).join(""))}</mark>`;
+      last = m.index + m[0].length;
+    }
+    return out + esc(chars.slice(last).join(""));
+  }
+
+  function setTerms(q) {
+    terms = fold(q).split(/\s+/).filter(Boolean);
+    termRe = terms.length
+      ? new RegExp(
+          `(${terms
+            .slice()
+            .sort((a, b) => b.length - a.length)
+            .map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+            .join("|")})`,
+          "gi",
+        )
+      : null;
+  }
+
+  function listPhrase(items) {
+    if (items.length < 2) return items.join("");
+    if (items.length === 2) return `${items[0]} and ${items[1]}`;
+    return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+  }
+
+  // ── Parsing ───────────────────────────────────────────────────
+  function parseGen(raw) {
+    const out = new Set();
+    clean(raw)
+      .split(/\s*,\s*(?:and\s+)?|\s+and\s+/i)
+      .forEach((tok) => {
+        const t = tok.trim().toLowerCase();
+        if (t === "manual") out.add("Manual");
+        else if (t === "semi-automatic" || t === "semi automatic") out.add("Semi-automatic");
+        else if (t === "automatic") out.add("Automatic");
       });
+    return GENS.filter((g) => out.has(g));
+  }
 
-    // Reset "Deselect All" button labels
-    [
-      "select-all-venues",
-      "select-all-types",
-      "select-all-annotation-types",
-      "select-all-annotation-generation",
-    ].forEach((id) => {
-      const btn = document.getElementById(id);
-      if (btn) {
-        btn.textContent = "Deselect All";
-        btn.classList.remove("active");
-      }
-    });
+  function toRecord(row, i) {
+    // drop a stray trailing period; keep ? and !
+    const title = delatex(clean(row["Title"])).replace(/\.+$/, "");
+    const venueRaw = clean(row["Venue"]);
+    const venue = VENUE_FIX[venueRaw] || venueRaw;
+    const year = parseInt(row["Year"], 10);
+    const t = clean(row["Annotation Types"]).toLowerCase();
+    const types = TYPES.filter((x) => t.includes(x.toLowerCase()));
+    const gen = parseGen(row["Annotation Generation Method"]);
+    const areas = AREAS.filter((a) => clean(row[a.key]).toUpperCase() === "X").map((a) => a.key);
+    const doi = clean(row["DOI"]).replace(/^https?:\/\/(dx\.)?doi\.org\//i, "");
+    const subcats = blank(row["Annotation Subcategories"]) ? "" : clean(row["Annotation Subcategories"]);
+    const authors = delatex(clean(row["Authors"]));
+    const abstract = delatex(clean(row["Abstract"]));
+    const id = clean(row["Paper Identifier"]) || `paper-${i}`;
+    return {
+      id,
+      title,
+      authors,
+      venue,
+      year: Number.isFinite(year) ? year : null,
+      doi,
+      bibtex: String(row["BibTex"] || "").trim(),
+      abstract,
+      subcats,
+      types,
+      gen,
+      areas,
+      f: {
+        cats: areas,
+        types: types.length ? types : [NONE],
+        gen: gen.length ? gen : [NONE],
+        venues: venue ? [venue] : [NONE],
+      },
+      search: fold([title, authors, venue, venueRaw, abstract, doi, subcats, year].join(" ")),
+    };
+  }
 
-    // Reset search bar
-    searchBar.value = "";
-
-    // Reset active tag filter
-    activeTagFilter = null;
-
-    // Reset year slider — this fires the 'update' event which calls filterCards()
-    const sliderEl = document.getElementById("year-range-slider");
-    if (sliderEl && sliderEl.noUiSlider) {
-      sliderEl.noUiSlider.set([1994, 2024]);
-    } else {
-      filterCards(); // fallback if slider not ready
+  // ── Loading ───────────────────────────────────────────────────
+  async function fetchText(url, ms) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), ms);
+    try {
+      const res = await fetch(url, { signal: ctrl.signal, cache: "no-cache" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.text();
+    } finally {
+      clearTimeout(timer);
     }
   }
 
-  // Attach to button
-  document
-    .getElementById("clear-filters-btn")
-    .addEventListener("click", clearFilters);
+  function parseCSV(text) {
+    const parsed = Papa.parse(text, { header: true, skipEmptyLines: "greedy" });
+    const rows = parsed.data.filter((r) => clean(r["Title"]));
+    if (!rows.length || !("Year" in rows[0])) throw new Error("Unexpected sheet format");
+    return rows;
+  }
 
-  // Initialize the chart with interactive tooltips
-  const ctx = document.getElementById("papers-chart").getContext("2d");
-  let papersChart = new Chart(ctx, {
-    type: "bar",
-    data: {
-      labels: [],
-      datasets: [
-        {
-          label: "Papers",
-          data: [],
-          backgroundColor: function (context) {
-            const chart = context.chart;
-            const { ctx: c, chartArea } = chart;
-            if (!chartArea) return "rgba(99, 102, 241, 0.6)";
-            const gradient = c.createLinearGradient(
-              0,
-              chartArea.top,
-              0,
-              chartArea.bottom,
-            );
-            gradient.addColorStop(0, "rgba(99, 102, 241, 0.85)");
-            gradient.addColorStop(1, "rgba(37, 99, 235, 0.35)");
-            return gradient;
-          },
-          borderColor: "rgba(99, 102, 241, 0.9)",
-          borderWidth: 1,
-          borderRadius: 4,
-          borderSkipped: false,
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: { duration: 300 },
-      scales: {
-        x: {
-          grid: { display: false },
-          border: { display: false },
-          ticks: {
-            maxRotation: 45,
-            minRotation: 0,
-            font: { size: 7, family: "inherit" },
-            color: "rgba(100, 110, 140, 0.7)",
-            maxTicksLimit: 8,
-          },
-        },
-        y: {
-          beginAtZero: true,
-          grid: { color: "rgba(120, 130, 160, 0.1)" },
-          border: { display: false, dash: [4, 4] },
-          ticks: {
-            stepSize: 1,
-            font: { size: 7, family: "inherit" },
-            color: "rgba(100, 110, 140, 0.7)",
-            padding: 4,
-          },
-        },
-      },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: "rgba(15, 18, 30, 0.92)",
-          titleFont: { size: 11, family: "inherit", weight: "700" },
-          bodyFont: { size: 10, family: "inherit" },
-          padding: 10,
-          cornerRadius: 10,
-          borderColor: "rgba(99, 102, 241, 0.4)",
-          borderWidth: 1,
-          callbacks: {
-            title: (items) => `Year: ${items[0].label}`,
-            label: (item) => ` ${item.raw} paper${item.raw !== 1 ? "s" : ""}`,
-          },
-        },
-      },
-    },
-  });
-
-  // Parse the CSV data from the URL
-  Papa.parse(url, {
-    download: true,
-    header: true,
-    skipEmptyLines: false,
-    complete: function (results) {
-      data = results.data;
-      const records = results.data;
-      if (records.length === 0) {
-        console.error("No data found in the CSV file.");
+  async function load() {
+    let rows;
+    let live = true;
+    try {
+      rows = parseCSV(await fetchText(SHEET_URL, 9000));
+    } catch (err) {
+      live = false;
+      try {
+        rows = parseCSV(await fetchText(SNAPSHOT_URL, 15000));
+      } catch (err2) {
+        els.count.textContent = "The paper list could not be loaded. Please refresh the page.";
         return;
       }
-      const venues = getUniqueVenues(records);
-      generateVenueFilters(venues);
-      generateOtherFilters(records);
-      renderCards(records);
-      updateChart(records);
-
-      // Event listeners for filtering
-      venueFilterContainer.addEventListener("change", filterCards);
-      otherFiltersContainer.addEventListener("change", filterCards);
-      searchBar.addEventListener("input", filterCards);
-
-      // Sort select event listener
-      const sortSelect = document.getElementById("sort-select");
-      if (sortSelect) sortSelect.addEventListener("change", filterCards);
-
-      // Handle slider change
-      // yearSlider.addEventListener('input', handleYearSliderChange);
-
-      // Select All functionality
-      document
-        .getElementById("select-all-venues")
-        .addEventListener("click", () => {
-          toggleSelectAll("venue-checkbox");
-          //playSound(filterSelectSound);
-        });
-      document
-        .getElementById("select-all-types")
-        .addEventListener("click", () => {
-          toggleSelectAll("other-checkbox");
-          //playSound(filterSelectSound);
-        });
-      // Add event listener for the "Select All" / "Deselect All" button for Annotation Types
-      document
-        .getElementById("select-all-annotation-types")
-        .addEventListener("click", function () {
-          toggleSelectAll(this, "annotation-checkbox"); // Target 'annotation-checkbox' class
-        });
-
-      // Handle dark mode toggle with smooth transition and tooltips
-      darkModeToggle.addEventListener("change", toggleDarkMode);
-      darkModeToggle.title = darkModeToggle.checked
-        ? "Switch to Light Mode"
-        : "Switch to Dark Mode"; // Set initial tooltip
-    },
-    error: function (error) {
-      console.error("Error parsing CSV:", error);
-    },
-  });
-
-  // Handle year slider change
-  // function handleYearSliderChange() {
-  //     const maxYear = parseInt(yearSlider.value);
-  //     yearRangeLabel.textContent = `1994 - ${maxYear}`;
-  //     filterCards();
-  // }
-
-  const yearMinLabel = document.getElementById("year-min");
-  const yearMaxLabel = document.getElementById("year-max");
-
-  // Initialize noUiSlider for range selection
-  noUiSlider.create(document.getElementById("year-range-slider"), {
-    start: [1994, 2024], // Starting range for the slider
-    connect: true,
-    range: {
-      min: 1994,
-      max: 2024,
-    },
-    step: 1,
-    tooltips: [false, false], // Optional: Tooltips on the handles
-    format: {
-      to: (value) => Math.round(value), // Display rounded year values
-      from: (value) => Number(value),
-    },
-  });
-
-  // ── Unified card interaction delegation ───────────────────────
-  // Handles: abstract toggle · tag filter · drawer open
-  cardsContainer.addEventListener("click", (e) => {
-    // 1. Abstract toggle (triangle button)
-    const triBtn = e.target.closest(".triangle-button");
-    if (triBtn) {
-      const suffix = triBtn.id.replace("abstractButton-", "");
-      toggleDiv(triBtn.id, "abstractDiv-" + suffix);
-      return;
     }
+    $("#data-source").textContent = live
+      ? "It is loaded live, so this page always matches the latest coding."
+      : "The live sheet could not be reached, so this is a saved copy.";
 
-    // 2. Tag chip click → filter, don't open drawer
-    const tag = e.target.closest(".tag--clickable");
-    if (tag) {
-      filterByTag(tag.dataset.field);
-      return;
-    }
+    records = rows.map(toRecord);
+    const years = records.map((r) => r.year).filter((y) => y != null);
+    minYear = Math.min(...years);
+    maxYear = Math.max(...years);
 
-    // 3. PDF / Cite buttons or DOI links → let them bubble naturally
-    if (e.target.closest(".card-action-btn, .card-details a, button, a"))
-      return;
+    buildFacets();
+    buildYearSelects();
+    fillStats();
+    // read the paper before the first render rewrites the URL
+    const paper = new URLSearchParams(location.search).get("paper");
+    readURL();
+    buildTimeline();
+    update({ first: true });
+    if (paper) openDetail(paper, { push: false });
 
-    // 4. Anything else on the card → open drawer
-    const card = e.target.closest(".card");
-    if (!card) return;
-    const idx = parseInt(card.dataset.cardIdx, 10);
-    if (isNaN(idx) || !_shownRecords[idx]) return;
-    openDrawer(_shownRecords[idx]);
-  });
-
-  function filterByTag(field) {
-    if (activeTagFilter === field) {
-      // Toggle off: restore all category checkboxes
-      activeTagFilter = null;
-      document.querySelectorAll(".other-checkbox").forEach((cb) => {
-        cb.checked = true;
-      });
-      updateButtonState("select-all-types", "other-checkbox");
-    } else {
-      // Toggle on: check only this field
-      activeTagFilter = field;
-      document.querySelectorAll(".other-checkbox").forEach((cb) => {
-        cb.checked = cb.value === field;
-      });
-      updateButtonState("select-all-types", "other-checkbox");
-    }
-    filterCards();
-  }
-
-  // Update the labels and filter the data when the slider values change
-  document
-    .getElementById("year-range-slider")
-    .noUiSlider.on("update", function (values) {
-      const minYear = Math.round(values[0]);
-      const maxYear = Math.round(values[1]);
-
-      // Update the display to show selected range
-      yearMinLabel.textContent = minYear;
-      yearMaxLabel.textContent = maxYear;
-
-      // Call filterCards function to update the displayed data
-      filterCards();
-    });
-
-  // Function to toggle checkboxes and update the button text
-  function toggleSelectAll(button, className) {
-    const checkboxes = document.querySelectorAll(`.${className}`);
-    const allChecked = Array.from(checkboxes).every((cb) => cb.checked);
-    const someChecked = Array.from(checkboxes).some((cb) => cb.checked);
-
-    // If any checkbox is checked, toggle all to unchecked
-    if (someChecked) {
-      checkboxes.forEach((cb) => (cb.checked = false));
-      button.textContent = "Select All";
-      button.classList.remove("active");
-    } else {
-      // If none are checked, toggle all to checked
-      checkboxes.forEach((cb) => (cb.checked = true));
-      button.textContent = "Deselect All";
-      button.classList.add("active");
-    }
-
-    filterCards(); // Update displayed data based on the checkbox state
-  }
-
-  // Add event listeners for the "Select All" / "Deselect All" buttons
-  document
-    .getElementById("select-all-venues")
-    .addEventListener("click", function () {
-      toggleSelectAll(this, "venue-checkbox");
-    });
-
-  document
-    .getElementById("select-all-types")
-    .addEventListener("click", function () {
-      toggleSelectAll(this, "other-checkbox");
-    });
-
-  // Update button state based on manual checkbox changes
-  document
-    .getElementById("venue-filter-container")
-    .addEventListener("change", () => {
-      updateButtonState("select-all-venues", "venue-checkbox");
-      playSound(filterSelectSound);
-    });
-
-  document
-    .getElementById("other-filters-container")
-    .addEventListener("change", () => {
-      updateButtonState("select-all-types", "other-checkbox");
-      playSound(filterSelectSound);
-    });
-
-  // Update button state when checkboxes are changed manually
-  document
-    .getElementById("annotation-filter-container")
-    .addEventListener("change", () => {
-      updateButtonState("select-all-annotation-types", "annotation-checkbox");
-      playSound(filterSelectSound);
-    });
-
-  document
-    .getElementById("select-all-annotation-generation")
-    .addEventListener("click", function () {
-      toggleSelectAll(this, "annotation-generation-checkbox"); // Target 'annotation-generation-checkbox' class
-    });
-
-  // Function to update the button text based on the checkbox state
-  function updateButtonState(buttonId, className) {
-    const button = document.getElementById(buttonId);
-    const checkboxes = document.querySelectorAll(`.${className}`);
-    const someChecked = Array.from(checkboxes).some((cb) => cb.checked);
-
-    button.textContent = someChecked ? "Deselect All" : "Select All";
-    if (someChecked) {
-      button.classList.add("active");
-    } else {
-      button.classList.remove("active");
-    }
-  }
-
-  // Get unique venues from records
-  function getUniqueVenues(records) {
-    const venueCounts = {};
-
-    records.forEach((record) => {
-      const venue = record["Venue"];
-      if (venue) {
-        if (!venueCounts[venue]) {
-          venueCounts[venue] = 0;
+    if ("ResizeObserver" in window) {
+      let w = els.svg.clientWidth;
+      new ResizeObserver(() => {
+        if (Math.abs(els.svg.clientWidth - w) > 1) {
+          w = els.svg.clientWidth;
+          buildTimeline();
+          drawTimeline();
         }
-        venueCounts[venue]++;
-      }
-    });
-
-    const venues = [];
-    let otherCount = 0;
-
-    Object.keys(venueCounts).forEach((venue) => {
-      if (venueCounts[venue] >= 5) {
-        venues.push({ venue, count: venueCounts[venue] });
-      } else {
-        otherVenues.push(venue);
-        otherCount += venueCounts[venue];
-      }
-    });
-
-    venues.sort((a, b) => b.count - a.count);
-
-    if (otherCount > 0) {
-      venues.push({ venue: "Other", count: otherCount });
+      }).observe(els.svg);
     }
-
-    return venues;
   }
 
-  // Generate filters for venues
-  function generateVenueFilters(venues) {
-    const grid = document.createElement("div");
-    grid.className = "filter-items-grid";
-    venues.forEach(({ venue, count }) => {
-      const label = document.createElement("label");
-      label.className = "venue-filter";
-      label.innerHTML = `<input type="checkbox" class="venue-checkbox" value="${venue}" checked><span class="filter-item-name">${venue}</span><span class="filter-count">${count}</span>`;
-      grid.appendChild(label);
+  // ── Masthead figures ──────────────────────────────────────────
+  function fillStats() {
+    const venues = new Set(records.map((r) => r.venue).filter(Boolean));
+    const areas = AREAS.filter((a) => records.some((r) => r.areas.includes(a.key)));
+    const set = (k, v) => $$(`[data-stat="${k}"]`).forEach((el) => (el.textContent = v));
+    set("papers", records.length);
+    set("years", `${minYear}–${maxYear}`);
+    set("venues", venues.size);
+    set("areas", areas.length);
+  }
+
+  function fillTalk() {
+    const el = $("#talk");
+    const link = `<a class="u" href="${TALK.url}" target="_blank" rel="noopener">IEEE VIS 2026</a>`;
+    el.innerHTML =
+      Date.now() < TALK.end.getTime()
+        ? `<span class="talk__dot" aria-hidden="true"></span><span>Talk at ${link}</span><span>${TALK.when}</span><span>${TALK.room}</span>`
+        : `<span>Presented at ${link}</span>`;
+    el.hidden = false;
+  }
+
+  // ── Facets ────────────────────────────────────────────────────
+  function buildFacets() {
+    const count = (facet) => {
+      const m = new Map();
+      records.forEach((r) => r.f[facet].forEach((v) => m.set(v, (m.get(v) || 0) + 1)));
+      return m;
+    };
+    const has = (facet, v) => records.some((r) => r.f[facet].includes(v));
+
+    optValues.cats = AREAS.map((a) => a.key).filter((k) => has("cats", k));
+    optValues.types = [...TYPES, NONE].filter((v) => has("types", v));
+    optValues.gen = [...GENS, NONE].filter((v) => has("gen", v));
+    const vc = count("venues");
+    optValues.venues = [...vc.keys()].sort((a, b) => vc.get(b) - vc.get(a) || a.localeCompare(b));
+
+    FACETS.forEach((facet) => {
+      const box = $(`.facet[data-facet="${facet}"] .facet__opts`);
+      box.innerHTML = optValues[facet]
+        .map((v) => {
+          const c = facet === "cats" ? ` style="--opt-c: var(${AREA[v].color})"` : "";
+          const title = facet === "venues" && VENUE_FULL[v] ? ` title="${esc(VENUE_FULL[v])}"` : "";
+          return `<label class="opt"${c}${title} data-value="${esc(v)}">
+            <input type="checkbox" value="${esc(v)}" />
+            <span class="opt__box" aria-hidden="true"></span>
+            <span class="opt__name">${esc(v)}</span>
+            <span class="opt__n"></span>
+          </label>`;
+        })
+        .join("");
     });
-    venueFilterContainer.appendChild(grid);
+
+    els.filtersBody.addEventListener("change", (e) => {
+      const input = e.target.closest(".opt input");
+      if (!input) return;
+      const facet = input.closest(".facet").dataset.facet;
+      input.checked ? state[facet].add(input.value) : state[facet].delete(input.value);
+      update({ scroll: true });
+    });
+
+    const more = $('.facet[data-facet="venues"] .facet__more');
+    more.addEventListener("click", () => {
+      venuesExpanded = !venuesExpanded;
+      syncControls();
+    });
   }
 
-  // Generate filters for other fields
-  function generateOtherFilters(records) {
-    const otherCounts = {};
+  function buildYearSelects() {
+    const opts = [];
+    for (let y = minYear; y <= maxYear; y++) opts.push(`<option value="${y}">${y}</option>`);
+    els.yearFrom.innerHTML = opts.join("");
+    els.yearTo.innerHTML = opts.join("");
+    const onChange = () => {
+      let a = +els.yearFrom.value;
+      let b = +els.yearTo.value;
+      if (a > b) [a, b] = [b, a];
+      setYears(a, b);
+    };
+    els.yearFrom.addEventListener("change", onChange);
+    els.yearTo.addEventListener("change", onChange);
+  }
 
-    records.forEach((record) => {
-      otherFields.forEach((field) => {
-        if (record[field] === "X") {
-          if (!otherCounts[field]) {
-            otherCounts[field] = 0;
-          }
-          otherCounts[field]++;
-        }
+  function setYears(a, b) {
+    state.y0 = a <= minYear ? null : a;
+    state.y1 = b >= maxYear ? null : b;
+    update({ scroll: true });
+  }
+
+  const lo = () => state.y0 ?? minYear;
+  const hi = () => state.y1 ?? maxYear;
+  const yearsActive = () => state.y0 != null || state.y1 != null;
+
+  // ── Filtering ─────────────────────────────────────────────────
+  function matches(r, except) {
+    for (const t of terms) if (!r.search.includes(t)) return false;
+    for (const facet of FACETS) {
+      if (facet === except || !state[facet].size) continue;
+      if (!r.f[facet].some((v) => state[facet].has(v))) return false;
+    }
+    if (except !== "years" && yearsActive()) {
+      if (r.year == null || r.year < lo() || r.year > hi()) return false;
+    }
+    return true;
+  }
+
+  const SORTS = {
+    newest: (a, b) => (b.year || 0) - (a.year || 0) || a.title.localeCompare(b.title),
+    oldest: (a, b) => (a.year || 9999) - (b.year || 9999) || a.title.localeCompare(b.title),
+    title: (a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }),
+    venue: (a, b) => a.venue.localeCompare(b.venue) || (b.year || 0) - (a.year || 0),
+  };
+
+  function activeCount() {
+    return FACETS.reduce((n, f) => n + state[f].size, 0) + (yearsActive() ? 1 : 0);
+  }
+
+  function update({ first = false, scroll = false, typing = false } = {}) {
+    results = records.filter((r) => matches(r)).sort(SORTS[state.sort] || SORTS.newest);
+    syncControls();
+    renderCards(first, typing);
+    renderStatus();
+    drawTimeline();
+    writeURL();
+    if (scroll) scrollToResults();
+  }
+
+  function scrollToResults() {
+    const top = els.status.getBoundingClientRect().top;
+    const toolbarH = $("#toolbar").offsetHeight;
+    if (top < toolbarH) {
+      window.scrollTo({
+        top: window.scrollY + top - toolbarH - 16,
+        behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
       });
-    });
-
-    const grid = document.createElement("div");
-    grid.className = "filter-items-grid filter-items-grid--column";
-    otherFields.forEach((field) => {
-      const colorClass = tagFieldColors[field] || "";
-      const label = document.createElement("label");
-      label.className = `other-filter ${colorClass}`;
-      label.innerHTML = `<input type="checkbox" class="other-checkbox" value="${field}" checked><span class="filter-item-name">${field}</span><span class="filter-count">${otherCounts[field] || 0}</span>`;
-      grid.appendChild(label);
-    });
-    otherFiltersContainer.appendChild(grid);
+    }
   }
 
-  // Define the fields to include in the CSV
-  const requiredFields = ["Title", "Venue", "Year", "Authors", "BibTex"];
+  // Facet counts: how many papers each option would show, given every other filter
+  function syncControls() {
+    FACETS.forEach((facet) => {
+      const pool = records.filter((r) => matches(r, facet));
+      const counts = new Map();
+      pool.forEach((r) => r.f[facet].forEach((v) => counts.set(v, (counts.get(v) || 0) + 1)));
+      const box = $(`.facet[data-facet="${facet}"]`);
+      $$(".opt", box).forEach((opt, i) => {
+        const v = optValues[facet][i];
+        const n = counts.get(v) || 0;
+        const input = $("input", opt);
+        input.checked = state[facet].has(v);
+        $(".opt__n", opt).textContent = n;
+        opt.classList.toggle("is-zero", n === 0 && !input.checked);
+        if (facet === "venues") opt.hidden = !venuesExpanded && i >= 6 && !input.checked;
+      });
+      if (facet === "venues") {
+        const more = $(".facet__more", box);
+        more.hidden = optValues.venues.length <= 6;
+        more.textContent = venuesExpanded ? "Show fewer" : `Show all ${optValues.venues.length} venues`;
+      }
+    });
 
-  // Function to download filtered data as CSV
-  function downloadCSV(records) {
-    if (records.length === 0) {
-      alert("No data available to download.");
+    els.yearFrom.value = lo();
+    els.yearTo.value = hi();
+    els.yearsReset.hidden = !yearsActive();
+    els.sort.value = state.sort;
+    if (els.search.value !== state.q) els.search.value = state.q;
+
+    const n = activeCount();
+    els.filtersOpenN.hidden = n === 0;
+    els.filtersOpenN.textContent = n;
+    els.filtersDone.textContent = results.length ? `Show ${plural(results.length, "paper")}` : "No papers match";
+    $$("[data-view]", $(".seg")).forEach((b) => b.setAttribute("aria-pressed", b.dataset.view === state.view));
+    els.cards.dataset.view = state.view;
+  }
+
+  // ── Cards ─────────────────────────────────────────────────────
+  function catsHTML(r) {
+    if (!r.areas.length) return "";
+    return `<ul class="cats">${r.areas
+      .map((k) => `<li style="--cat-c: var(${AREA[k].color})"><i aria-hidden="true"></i>${esc(AREA[k].short)}</li>`)
+      .join("")}</ul>`;
+  }
+
+  function thumbHTML(r, cls) {
+    const id = encodeURIComponent(r.id);
+    return `<div class="sheet ${cls}">
+      <img src="thumbs/${id}.webp" data-fallback="thumbnails/${id}.png" alt="" width="612" height="560" loading="lazy" decoding="async" />
+    </div>`;
+  }
+
+  function wireThumb(img, r) {
+    const done = () => img.classList.add("is-loaded");
+    img.addEventListener("load", done);
+    img.addEventListener("error", () => {
+      if (img.dataset.fallback) {
+        img.src = img.dataset.fallback;
+        delete img.dataset.fallback;
+      } else {
+        const cover = document.createElement("div");
+        cover.className = "cover";
+        cover.innerHTML = `<b>${esc(r.title)}</b><span>${esc(r.venue)}${r.year ? ` · ${r.year}` : ""}</span>`;
+        img.replaceWith(cover);
+      }
+    });
+    if (img.complete && img.naturalWidth) done();
+  }
+
+  function cardBody(r) {
+    return `<h3 class="card__title"><a class="card__link" href="?paper=${encodeURIComponent(r.id)}" data-id="${esc(r.id)}">${hl(r.title)}</a></h3>
+      <p class="card__authors">${hl(r.authors)}</p>`;
+  }
+
+  function makeCard(r) {
+    const el = document.createElement("article");
+    el.className = "card";
+    el.innerHTML = `${thumbHTML(r, "card__sheet")}
+      <div class="card__meta"><span class="year">${r.year ?? ""}</span><span class="sep" aria-hidden="true">·</span><span class="venue" title="${esc(VENUE_FULL[r.venue] || r.venue)}">${esc(r.venue)}</span></div>
+      <div class="card__body">${cardBody(r)}</div>
+      ${catsHTML(r)}`;
+    // flatten the body wrapper so grid/list layouts see title and authors directly
+    const body = $(".card__body", el);
+    body.replaceWith(...body.childNodes);
+    wireThumb($("img", el), r);
+    return el;
+  }
+
+  let lastQ = "";
+  function renderCards(first) {
+    const qChanged = lastQ !== state.q;
+    lastQ = state.q;
+    const frag = document.createDocumentFragment();
+    results.forEach((r, i) => {
+      let el = cardEls.get(r.id);
+      if (!el) {
+        el = makeCard(r);
+        cardEls.set(r.id, el);
+      } else if (qChanged) {
+        $(".card__link", el).innerHTML = hl(r.title);
+        $(".card__authors", el).innerHTML = hl(r.authors);
+      }
+      if (first) {
+        el.classList.add("is-new");
+        el.style.setProperty("--i", i);
+      }
+      frag.appendChild(el);
+    });
+    els.cards.replaceChildren(frag);
+    els.empty.hidden = results.length > 0;
+    if (first) setTimeout(() => cardEls.forEach((el) => el.classList.remove("is-new")), 1200);
+  }
+
+  // ── Status line and chips ─────────────────────────────────────
+  function renderStatus() {
+    const total = records.length;
+    const n = results.length;
+    els.count.innerHTML =
+      n === total
+        ? `<strong>${total}</strong> papers`
+        : `<strong>${n}</strong> of ${total} papers`;
+
+    const chips = [];
+    const chip = (label, action, color) =>
+      chips.push(
+        `<button type="button" class="chip" data-action="${esc(action)}" aria-label="Remove filter: ${esc(label)}"${color ? ` style="--chip-c: var(${color})"` : ""}>${color ? '<i aria-hidden="true"></i>' : ""}${esc(label)}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg></button>`,
+      );
+    if (state.q) chip(`“${state.q}”`, "q");
+    state.cats.forEach((v) => chip(AREA[v].short, `cats|${v}`, AREA[v].color));
+    state.types.forEach((v) => chip(v === NONE ? "Type not specified" : `${v} annotations`, `types|${v}`));
+    state.gen.forEach((v) => chip(v === NONE ? "Generation not specified" : `${v} generation`, `gen|${v}`));
+    state.venues.forEach((v) => chip(v, `venues|${v}`));
+    if (yearsActive()) chip(lo() === hi() ? `${lo()}` : `${lo()}–${hi()}`, "years");
+    if (chips.length > 1) chips.push(`<button type="button" class="chip chip--clear" data-clear>Clear all</button>`);
+    els.chips.innerHTML = chips.join("");
+  }
+
+  els.chips.addEventListener("click", (e) => {
+    const b = e.target.closest(".chip[data-action]");
+    if (!b) return;
+    const [facet, value] = b.dataset.action.split(/\|(.*)/s);
+    if (facet === "q") state.q = "";
+    else if (facet === "years") state.y0 = state.y1 = null;
+    else state[facet].delete(value);
+    if (facet === "q") setTerms("");
+    update();
+  });
+
+  function clearAll() {
+    state.q = "";
+    setTerms("");
+    FACETS.forEach((f) => state[f].clear());
+    state.y0 = state.y1 = null;
+    update({ scroll: true });
+  }
+  document.addEventListener("click", (e) => {
+    if (e.target.closest("[data-clear]")) clearAll();
+  });
+
+  // ── Timeline ──────────────────────────────────────────────────
+  const tl = { bars: [], w: 0, h: 0, padT: 22, padB: 20, step: 0, brush: null, tip: null };
+
+  function buildTimeline() {
+    const svg = els.svg;
+    const w = svg.clientWidth || 600;
+    const h = svg.clientHeight || 92;
+    const n = maxYear - minYear + 1;
+    tl.w = w;
+    tl.h = h;
+    tl.step = w / n;
+    const bw = Math.max(2, Math.min(tl.step * 0.74, 26));
+    svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+
+    const every = tl.step < 9 ? 10 : 5;
+    let html = `<line class="axis" x1="0" x2="${w}" y1="${h - tl.padB + 0.5}" y2="${h - tl.padB + 0.5}"/>`;
+    html += `<rect class="brush" y="${tl.padT - 4}" height="${h - tl.padB - tl.padT + 4}" x="0" width="0" visibility="hidden"/>`;
+    for (let i = 0; i < n; i++) {
+      const y = minYear + i;
+      const x = i * tl.step + (tl.step - bw) / 2;
+      html += `<g data-i="${i}"><rect class="bar-ghost" x="${x}" width="${bw}" y="${h - tl.padB}" height="0"/><rect class="bar-on" x="${x}" width="${bw}" y="${h - tl.padB}" height="0"/></g>`;
+      const edge = i === 0 || i === n - 1;
+      const near = (y - minYear < 3 && i !== 0) || (maxYear - y < 3 && i !== n - 1);
+      if (edge || (y % every === 0 && !near)) {
+        const anchor = i === 0 ? "start" : i === n - 1 ? "end" : "middle";
+        const tx = i === 0 ? x : i === n - 1 ? x + bw : x + bw / 2;
+        html += `<text x="${tx}" y="${h - 4}" text-anchor="${anchor}">${y}</text>`;
+      }
+    }
+    html += `<g class="tip" visibility="hidden"><rect class="tip-bg" rx="4" height="20"/><text class="tip-text" y="0"></text></g>`;
+    svg.innerHTML = html;
+    tl.bars = $$("g[data-i]", svg).map((g) => ({ g, ghost: g.children[0], on: g.children[1] }));
+    tl.brush = $(".brush", svg);
+    tl.tip = $(".tip", svg);
+  }
+
+  function setRect(el, y, height) {
+    el.setAttribute("y", y);
+    el.setAttribute("height", height);
+    el.style.y = `${y}px`;
+    el.style.height = `${height}px`;
+  }
+
+  let tlCounts = [];
+  function drawTimeline() {
+    if (!tl.bars.length) return;
+    const n = maxYear - minYear + 1;
+    tlCounts = new Array(n).fill(0);
+    records.forEach((r) => {
+      if (r.year != null && matches(r, "years")) tlCounts[r.year - minYear]++;
+    });
+    const max = Math.max(1, ...tlCounts);
+    const base = tl.h - tl.padB;
+    const avail = base - tl.padT;
+    tl.bars.forEach((b, i) => {
+      const c = tlCounts[i];
+      const bh = c ? Math.max(2, (c / max) * avail) : 0;
+      const yr = minYear + i;
+      const inRange = yr >= lo() && yr <= hi();
+      setRect(b.ghost, base - bh, bh);
+      setRect(b.on, inRange ? base - bh : base, inRange ? bh : 0);
+    });
+    const inSel = tlCounts.reduce((s, c, i) => s + (minYear + i >= lo() && minYear + i <= hi() ? c : 0), 0);
+    els.svg.setAttribute(
+      "aria-label",
+      `Papers per year from ${minYear} to ${maxYear}. ${yearsActive() ? `Selected ${lo()} to ${hi()}, ${plural(inSel, "paper")}.` : ""}`,
+    );
+  }
+
+  function showTip(i) {
+    if (i == null) {
+      tl.tip.setAttribute("visibility", "hidden");
+      tl.bars.forEach((b) => b.g.classList.remove("is-hover"));
       return;
     }
-
-    // Extract only the required fields from each record
-    const csvContent = [
-      requiredFields.join(","), // Header row
-      ...records.map(
-        (record) =>
-          requiredFields.map((field) => `"${record[field] || ""}"`).join(","), // Add each row with the required fields
-      ),
-    ].join("\n");
-
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "filtered_papers.csv";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    tl.bars.forEach((b, j) => b.g.classList.toggle("is-hover", j === i));
+    const text = $("text", tl.tip);
+    text.textContent = `${minYear + i} · ${plural(tlCounts[i] || 0, "paper")}`;
+    const tw = text.getComputedTextLength() + 16;
+    const cx = i * tl.step + tl.step / 2;
+    const x = Math.max(0, Math.min(tl.w - tw, cx - tw / 2));
+    const bar = tl.bars[i].ghost;
+    const top = Math.max(0, parseFloat(bar.getAttribute("y")) - 26);
+    $("rect", tl.tip).setAttribute("x", x);
+    $("rect", tl.tip).setAttribute("y", top);
+    $("rect", tl.tip).setAttribute("width", tw);
+    text.setAttribute("x", x + 8);
+    text.setAttribute("y", top + 14);
+    tl.tip.setAttribute("visibility", "visible");
   }
 
-  // Add event listener to the download button
-  document
-    .getElementById("download-csv-button")
-    .addEventListener("click", () => {
-      downloadCSV(filteredData); // Use the globally stored filtered data
-      playSound(clickSound);
+  (function wireTimeline() {
+    const svg = els.svg;
+    let start = null;
+    let startX = 0;
+    let dragging = false;
+    const idxAt = (e) => {
+      const rect = svg.getBoundingClientRect();
+      const x = ((e.clientX - rect.left) / rect.width) * tl.w;
+      return Math.max(0, Math.min(maxYear - minYear, Math.floor(x / tl.step)));
+    };
+    const showBrush = (a, b) => {
+      const [i, j] = a < b ? [a, b] : [b, a];
+      tl.brush.setAttribute("x", i * tl.step);
+      tl.brush.setAttribute("width", (j - i + 1) * tl.step);
+      tl.brush.setAttribute("visibility", "visible");
+    };
+    svg.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      start = idxAt(e);
+      startX = e.clientX;
+      dragging = false;
+      svg.setPointerCapture(e.pointerId);
     });
-
-  // Render cards with content based on the records
-  function renderCards(records) {
-    _shownRecords = records; // store reference for delegation
-    cardsContainer.innerHTML = ""; // Clear previous cards
-    records.forEach((record, idx) => {
-      const card = document.createElement("div");
-      card.className = "card card-animated";
-      card.dataset.cardIdx = idx; // used by the delegated click handler
-      card.innerHTML = generateCardContent(record, idx);
-      cardsContainer.appendChild(card);
+    svg.addEventListener("pointermove", (e) => {
+      const i = idxAt(e);
+      if (start != null) {
+        if (!dragging && Math.abs(e.clientX - startX) > 4) dragging = true;
+        if (dragging) showBrush(start, i);
+      }
+      if (e.pointerType === "mouse" || start != null) showTip(i);
     });
-    totalPapersSpan.textContent = records.length; // Update total papers count
-
-    // Update results bar
-    const resultsCountEl = document.getElementById("results-count");
-    if (resultsCountEl) {
-      const total = data.length || records.length;
-      const showing = records.length;
-      if (showing === total) {
-        resultsCountEl.innerHTML = `<strong>${showing}</strong> papers`;
+    const end = (e) => {
+      if (start == null) return;
+      const i = idxAt(e);
+      tl.brush.setAttribute("visibility", "hidden");
+      if (dragging) {
+        const [a, b] = start < i ? [start, i] : [i, start];
+        setYears(minYear + a, minYear + b);
       } else {
-        resultsCountEl.innerHTML = `Showing <strong>${showing}</strong> of <strong>${total}</strong> papers`;
+        const y = minYear + i;
+        if (lo() === y && hi() === y) setYears(minYear, maxYear);
+        else setYears(y, y);
       }
-    }
-
-    updateChart(records); // Update chart data
-  }
-
-  // Generate card content dynamically with search term highlighting
-  function generateCardContent(record, idx) {
-    let content = "";
-    content += `<img src="thumbnails/${record["Paper Identifier"]}.png" alt="Paper Image" class="card-image" width="100%"/>`;
-    content += `<h3>${highlightSearchTerm(record["Title"])}</h3>`;
-
-    // Grouping Authors, Annotation Types, and Annotation Generation Method
-    content += `<div class="card-details">`;
-    content += `<p><strong>Authors:</strong> ${highlightSearchTerm(record["Authors"])}</p>`;
-
-    if (record["Venue"]) {
-      content += `<p><strong>Venue:</strong> ${highlightSearchTerm(record["Venue"])}</p>`;
-    }
-
-    if (record["Annotation Types"]) {
-      content += `<p><strong>Annotation Types:</strong> ${highlightSearchTerm(record["Annotation Types"])}</p>`;
-    }
-
-    if (record["Annotation Generation Method"]) {
-      content += `<p><strong>Annotation Generation Method:</strong> ${highlightSearchTerm(record["Annotation Generation Method"])}</p>`;
-    }
-
-    // Add DOI if present
-    if (record["DOI"]) {
-      content += `<p><strong>DOI:</strong> <a href="https://doi.org/${record["DOI"]}" target="_blank">${record["DOI"]}</a></p>`;
-    }
-
-    content += `</div>`;
-
-    let tags = "";
-    otherFields.forEach((field) => {
-      if (record[field] === "X") {
-        const colorClass = tagFieldColors[field] || "";
-        const activeClass = activeTagFilter === field ? "tag--active" : "";
-        tags += `<span class="tag tag--clickable ${colorClass} ${activeClass}" data-field="${field}">${field}</span> `;
-      }
+      start = null;
+      dragging = false;
+      if (e.pointerType !== "mouse") showTip(null);
+    };
+    svg.addEventListener("pointerup", end);
+    svg.addEventListener("pointercancel", () => {
+      start = null;
+      dragging = false;
+      tl.brush.setAttribute("visibility", "hidden");
+      showTip(null);
     });
+    svg.addEventListener("pointerleave", () => {
+      if (start == null) showTip(null);
+    });
+    els.yearsReset.addEventListener("click", () => setYears(minYear, maxYear));
+  })();
 
-    if (tags) {
-      content += `<p><strong>Tags:</strong> ${tags}</p>`;
-    }
-
-    content += `<p><strong>Abstract</strong> `;
-    content += `<span class="triangle-button" id="abstractButton-${idx}" style="cursor: pointer;">►</span>`;
-    content += `</p>`;
-    content += `<div class="abstract-div" id="abstractDiv-${idx}" style="display: none;">${highlightSearchTerm(record["Abstract"])}</div>`;
-
-    // Card action buttons row
-    content += `<div class="card-actions">`;
-
-    // PDF / DOI button
-    if (record["DOI"]) {
-      content += `<a href="https://doi.org/${record["DOI"]}" target="_blank" class="card-action-btn card-action-btn--pdf" title="View paper">
-        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-        PDF
-      </a>`;
-    } else {
-      content += `<span class="card-action-btn card-action-btn--pdf card-action-btn--disabled" title="No DOI available">
-        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-        PDF
-      </span>`;
-    }
-
-    // BibTeX button
-    if (record["BibTex"]) {
-      content += `<button onclick="downloadBibtex('${idx}')" class="card-action-btn card-action-btn--bib" title="Download BibTeX">
-        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        Cite
-      </button>`;
-    }
-
-    content += `</div>`;
-
-    return content;
+  // ── URL state ─────────────────────────────────────────────────
+  function readURL() {
+    const p = new URLSearchParams(location.search);
+    state.q = p.get("q") || "";
+    setTerms(state.q);
+    FACETS.forEach((f) => {
+      state[f] = new Set(p.getAll(PARAM[f]).filter((v) => optValues[f].includes(v)));
+    });
+    const from = parseInt(p.get("from"), 10);
+    const to = parseInt(p.get("to"), 10);
+    state.y0 = from > minYear && from <= maxYear ? from : null;
+    state.y1 = to < maxYear && to >= minYear ? to : null;
+    if (state.y0 != null && state.y1 != null && state.y0 > state.y1) [state.y0, state.y1] = [state.y1, state.y0];
+    if (SORTS[p.get("sort")]) state.sort = p.get("sort");
   }
 
-  // ── Drawer ──────────────────────────────────────────────────
-  function openDrawer(record) {
-    const body = document.getElementById("drawer-body");
-    body.scrollTop = 0;
+  function paramsFor(paper) {
+    const p = new URLSearchParams();
+    if (state.q) p.set("q", state.q);
+    FACETS.forEach((f) => state[f].forEach((v) => p.append(PARAM[f], v)));
+    if (state.y0 != null) p.set("from", state.y0);
+    if (state.y1 != null) p.set("to", state.y1);
+    if (state.sort !== "newest") p.set("sort", state.sort);
+    if (paper) p.set("paper", paper);
+    const s = p.toString();
+    return `${location.pathname}${s ? `?${s}` : ""}${location.hash}`;
+  }
 
-    // Build category tags HTML
-    const activeTags = otherFields.filter((f) => record[f] === "X");
-    const tagsHtml = activeTags
-      .map((f) => {
-        const cc = tagFieldColors[f] || "";
-        return `<span class="tag ${cc}">${f}</span>`;
-      })
-      .join("");
+  function writeURL() {
+    history.replaceState(history.state, "", paramsFor(detailId));
+  }
 
-    // Action buttons for title area
-    const pdfBtn = record["DOI"]
-      ? `<a href="https://doi.org/${record["DOI"]}" target="_blank" rel="noopener" class="drawer__btn drawer__btn--pdf">
-          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-          View Paper
-        </a>`
-      : `<span class="drawer__btn drawer__btn--pdf drawer__btn--disabled">
-          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-          No PDF Available
-        </span>`;
+  window.addEventListener("popstate", () => {
+    const paper = new URLSearchParams(location.search).get("paper");
+    detailPushed = false;
+    if (paper) openDetail(paper, { push: false });
+    else if (els.detail.open) {
+      els.detail.close();
+      finishClose();
+    }
+  });
 
-    const bibBtn = record["BibTex"]
-      ? `<button class="drawer__btn drawer__btn--bib" id="drawer-cite-btn">
-          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          Download BibTeX
-        </button>`
+  // ── Detail sheet ──────────────────────────────────────────────
+  function navList() {
+    return results.some((r) => r.id === detailId) ? results : [...records].sort(SORTS[state.sort]);
+  }
+
+  function openDetail(id, { push = true } = {}) {
+    const r = records.find((x) => x.id === id);
+    if (!r) return;
+    const wasOpen = els.detail.open;
+    detailId = id;
+    renderDetail(r, wasOpen);
+    if (push && !wasOpen) {
+      history.pushState({ paper: id }, "", paramsFor(id));
+      detailPushed = true;
+    } else {
+      writeURL();
+    }
+    if (!wasOpen) {
+      els.detail.showModal();
+      document.documentElement.classList.add("has-modal");
+      els.detailBody.scrollTop = 0;
+      $("#detail-close").focus({ preventScroll: true });
+    }
+  }
+
+  // Closing an entry we pushed goes back in history; popstate then closes the dialog
+  function closeDetail() {
+    if (!els.detail.open) return;
+    if (detailPushed) history.back();
+    else {
+      els.detail.close();
+      finishClose();
+    }
+  }
+
+  // Runs once per close, whichever path closed the dialog
+  function finishClose() {
+    if (!detailId) return;
+    document.documentElement.classList.remove("has-modal");
+    const id = detailId;
+    detailId = null;
+    detailPushed = false;
+    writeURL();
+    const link = $(`.card__link[data-id="${CSS.escape(id)}"]`);
+    if (link) link.focus({ preventScroll: true });
+  }
+  els.detail.addEventListener("close", finishClose);
+
+  function factRow(term, value) {
+    return value ? `<dt>${term}</dt><dd>${value}</dd>` : "";
+  }
+
+  function renderDetail(r, swap) {
+    const list = navList();
+    const i = list.findIndex((x) => x.id === r.id);
+    els.detailPos.textContent = i >= 0 ? `${i + 1} of ${list.length}` : "";
+    els.detailPrev.disabled = i <= 0;
+    els.detailNext.disabled = i < 0 || i >= list.length - 1;
+
+    const venueFull = VENUE_FULL[r.venue];
+    const typeText = r.types.length ? listPhrase(r.types) : NONE;
+    const genText = r.gen.length ? listPhrase(r.gen.map((g, k) => (k ? g.toLowerCase() : g))) : NONE;
+    const areas = r.areas.length
+      ? `<ul class="cats">${r.areas
+          .map(
+            (k) =>
+              `<li><button type="button" data-area="${esc(k)}" style="--cat-c: var(${AREA[k].color})" title="Show all papers in this area"><i class="dot" aria-hidden="true"></i>${esc(k)}</button></li>`,
+          )
+          .join("")}</ul>`
+      : "";
+    const doiLink = r.doi
+      ? `<a class="u" href="https://doi.org/${encodeURI(r.doi)}" target="_blank" rel="noopener">${esc(r.doi)}</a>`
       : "";
 
-    body.innerHTML = `
-      <div class="drawer__figure">
-        <img src="thumbnails/${record["Paper Identifier"]}.png"
-             alt="${(record["Title"] || "").replace(/"/g, "&quot;")}"
-             class="drawer__img" loading="lazy" />
+    els.detailBody.innerHTML = `
+      ${thumbHTML(r, "detail__sheet")}
+      <p class="detail__meta"><span class="year">${r.year ?? ""}</span><span class="sep" aria-hidden="true">·</span>${esc(r.venue)}</p>
+      <h2 id="detail-title">${hl(r.title)}</h2>
+      <p class="detail__authors">${hl(r.authors)}</p>
+      ${venueFull ? `<p class="detail__venue">${esc(venueFull)}</p>` : ""}
+      <div class="detail__actions">
+        ${r.doi ? `<a class="btn btn--solid btn--small" href="https://doi.org/${encodeURI(r.doi)}" target="_blank" rel="noopener">Open paper<span aria-hidden="true">↗</span></a>` : ""}
+        ${r.bibtex ? `<button class="btn btn--small" type="button" data-copy-bib>Copy BibTeX</button><button class="btn btn--small btn--ghost" type="button" data-dl-bib>Download .bib</button>` : ""}
       </div>
+      <dl class="facts">
+        ${factRow("Annotation type", esc(typeText))}
+        ${factRow("Generation method", esc(genText))}
+        ${factRow("Annotation forms", r.subcats ? esc(r.subcats) : "")}
+        ${factRow("Research areas", areas)}
+        ${factRow("DOI", doiLink)}
+      </dl>
+      ${r.abstract ? `<section class="detail__section"><h3 class="label">Abstract</h3><p class="abstract">${hl(r.abstract)}</p></section>` : ""}
+      ${r.bibtex ? `<details><summary>BibTeX</summary><pre>${esc(r.bibtex)}</pre></details>` : ""}`;
 
-      <div class="drawer__inner">
-        <div class="drawer__hero">
-          <h2 class="drawer__title" id="drawer-title">${record["Title"] || "Untitled"}</h2>
-          <div class="drawer__hero-footer">
-            <div class="drawer__meta-row">
-              ${record["Year"] ? `<span class="drawer__meta-pill drawer__meta-pill--year">${record["Year"]}</span>` : ""}
-              ${record["Venue"] ? `<span class="drawer__meta-pill drawer__meta-pill--venue" title="${record["Venue"]}">${record["Venue"]}</span>` : ""}
-            </div>
-            <div class="drawer__title-actions">
-              ${pdfBtn}
-              ${bibBtn}
-            </div>
-          </div>
-        </div>
-
-        <dl class="drawer__dl">
-          <div class="drawer__dl-row">
-            <dt>Authors</dt>
-            <dd>${record["Authors"] || "—"}</dd>
-          </div>
-          ${record["Annotation Types"] ? `<div class="drawer__dl-row"><dt>Annotation Types</dt><dd>${record["Annotation Types"]}</dd></div>` : ""}
-          ${record["Annotation Generation Method"] ? `<div class="drawer__dl-row"><dt>Generation</dt><dd>${record["Annotation Generation Method"]}</dd></div>` : ""}
-          ${record["DOI"] ? `<div class="drawer__dl-row"><dt>DOI</dt><dd><a href="https://doi.org/${record["DOI"]}" target="_blank" rel="noopener" class="drawer__link">${record["DOI"]}</a></dd></div>` : ""}
-        </dl>
-
-        ${tagsHtml ? `<div class="drawer__section"><span class="drawer__section-label">Categories</span><div class="drawer__tags">${tagsHtml}</div></div>` : ""}
-
-        ${record["Abstract"] ? `<div class="drawer__section"><span class="drawer__section-label">Abstract</span><p class="drawer__abstract">${record["Abstract"]}</p></div>` : ""}
-      </div>
-    `;
-
-    // Wire cite button
-    if (record["BibTex"]) {
-      document
-        .getElementById("drawer-cite-btn")
-        .addEventListener("click", () => {
-          const blob = new Blob([record["BibTex"]], { type: "text/plain" });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = `${record["Paper Identifier"]}.bib`;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-        });
+    wireThumb($("img", els.detailBody), r);
+    if (swap) {
+      els.detailBody.classList.remove("is-swap");
+      void els.detailBody.offsetWidth;
+      els.detailBody.classList.add("is-swap");
+      els.detailBody.scrollTop = 0;
     }
-
-    const overlay = document.getElementById("drawer-overlay");
-    overlay.classList.add("is-open");
-    overlay.setAttribute("aria-hidden", "false");
-    document.body.style.overflow = "hidden";
-    document.getElementById("paper-drawer").focus();
   }
 
-  function closeDrawer() {
-    const overlay = document.getElementById("drawer-overlay");
-    overlay.classList.remove("is-open");
-    overlay.setAttribute("aria-hidden", "true");
-    document.body.style.overflow = "";
+  function step(dir) {
+    if (!els.detail.open || !detailId) return;
+    const list = navList();
+    const i = list.findIndex((x) => x.id === detailId);
+    const next = list[i + dir];
+    if (next) openDetail(next.id, { push: false });
   }
 
-  // Close drawer on overlay backdrop click
-  document.getElementById("drawer-overlay").addEventListener("click", (e) => {
-    if (e.target === document.getElementById("drawer-overlay")) closeDrawer();
+  els.detailPrev.addEventListener("click", () => step(-1));
+  els.detailNext.addEventListener("click", () => step(1));
+  $("#detail-close").addEventListener("click", closeDetail);
+  els.detail.addEventListener("click", (e) => {
+    if (e.target === els.detail) closeDetail();
   });
-  // Close drawer on close button click
-  document
-    .getElementById("drawer-close")
-    .addEventListener("click", closeDrawer);
-  // Close drawer on Escape
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeDrawer();
+  els.detail.addEventListener("cancel", (e) => {
+    e.preventDefault();
+    closeDetail();
+  });
+  els.detail.addEventListener("keydown", (e) => {
+    if (e.target.closest("input, textarea, select")) return;
+    if (e.key === "ArrowLeft") step(-1);
+    if (e.key === "ArrowRight") step(1);
+  });
+  els.detailBody.addEventListener("click", (e) => {
+    const r = records.find((x) => x.id === detailId);
+    if (!r) return;
+    if (e.target.closest("[data-copy-bib]")) copy(r.bibtex, "BibTeX copied");
+    if (e.target.closest("[data-dl-bib]")) download(`${r.id}.bib`, `${r.bibtex}\n`, "application/x-bibtex");
+    const area = e.target.closest("[data-area]");
+    if (area) {
+      FACETS.forEach((f) => state[f].clear());
+      state.cats.add(area.dataset.area);
+      state.y0 = state.y1 = null;
+      closeDetail();
+      update();
+      requestAnimationFrame(() => els.status.scrollIntoView({ behavior: "smooth", block: "start" }));
+    }
   });
 
-  // Function to highlight search terms within the text
-  function highlightSearchTerm(text) {
-    const searchQuery = searchBar.value.toLowerCase();
-    if (!searchQuery) return text;
+  els.cards.addEventListener("click", (e) => {
+    const link = e.target.closest(".card__link");
+    if (!link || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    e.preventDefault();
+    openDetail(link.dataset.id);
+  });
 
-    const regex = new RegExp(`(${searchQuery})`, "gi");
-    return text.replace(regex, "<mark>$1</mark>");
+  // ── Copy, download, export ────────────────────────────────────
+  let toastTimer;
+  function toast(msg) {
+    els.toast.textContent = msg;
+    els.toast.classList.add("is-on");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => els.toast.classList.remove("is-on"), 2200);
   }
 
-  // Function to update the chart data based on current records
-  function updateChart(records) {
-    const yearCounts = {};
-    records.forEach((record) => {
-      const year = record["Year"];
-      if (year) {
-        yearCounts[year] = (yearCounts[year] || 0) + 1;
-      }
-    });
-
-    const years = Object.keys(yearCounts).sort();
-    const counts = years.map((year) => yearCounts[year]);
-
-    papersChart.data.labels = years;
-    papersChart.data.datasets[0].data = counts;
-    papersChart.update();
+  async function copy(text, msg) {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (e) {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.cssText = "position:fixed;opacity:0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+    }
+    toast(msg);
   }
 
-  // Function to download BibTeX file
-  window.downloadBibtex = function (idx) {
-    const bibtex = data[idx]["BibTex"];
-    const paperId = data[idx]["Paper Identifier"];
-    const blob = new Blob([bibtex], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
+  function download(name, text, type) {
+    const url = URL.createObjectURL(new Blob([text], { type: `${type};charset=utf-8` }));
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${paperId}.bib`;
+    a.download = name;
     document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-  function filterCards() {
-    const checkedVenues = Array.from(
-      document.querySelectorAll(".venue-checkbox:checked"),
-    ).map((cb) => cb.value);
-    const checkedOtherFields = Array.from(
-      document.querySelectorAll(".other-checkbox:checked"),
-    ).map((cb) => cb.value);
-    const searchQuery = searchBar.value.toLowerCase();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
 
-    // Get the minimum and maximum year from the range slider
-    const minYear = parseInt(yearMinLabel.textContent);
-    const maxYear = parseInt(yearMaxLabel.textContent);
+  $$("[data-copy]").forEach((b) =>
+    b.addEventListener("click", () => copy($(`#${b.dataset.copy}`).textContent, "Citation copied")),
+  );
 
-    // Check the state of the "Textual" and "Graphical" checkboxes
-    const isTextualChecked = textualCheckbox.checked;
-    const isGraphicalChecked = graphicalCheckbox.checked;
-
-    // Check the state of the "Annotation Generation" checkboxes
-    const isManualChecked = manualCheckbox.checked;
-    const isAutomaticChecked = automaticCheckbox.checked;
-    const isSemiAutomaticChecked = semiAutomaticCheckbox.checked;
-
-    // Log the state of the annotation generation checkboxes
-    console.log(
-      `Manual: ${isManualChecked}, Automatic: ${isAutomaticChecked}, Semi-Automatic: ${isSemiAutomaticChecked}`,
-    );
-
-    // Filter the records based on selected filters, year range, search query, and annotation types
-    filteredData = data.filter((record) => {
-      const recordVenue = record["Venue"];
-      const recordYear = parseInt(record["Year"]);
-      const matchesYear = recordYear >= minYear && recordYear <= maxYear; // Filter by year range
-
-      const matchesVenue = checkedVenues.includes(recordVenue);
-      const matchesOtherVenue =
-        checkedVenues.includes("Other") && otherVenues.includes(recordVenue);
-      // If all category checkboxes are checked (or none selected), show all papers
-      // regardless of whether they have any category tag. Only filter when the user
-      // has deliberately deselected at least one category.
-      const totalOtherCheckboxes =
-        document.querySelectorAll(".other-checkbox").length;
-      const allOtherChecked =
-        checkedOtherFields.length === totalOtherCheckboxes;
-      const matchesOtherFields =
-        allOtherChecked ||
-        checkedOtherFields.length === 0 ||
-        checkedOtherFields.some((field) => record[field] === "X");
-
-      const title = record["Title"] ? record["Title"].toLowerCase() : "";
-      const abstract = record["Abstract"]
-        ? record["Abstract"].toLowerCase()
-        : "";
-      const authors = record["Authors"] ? record["Authors"].toLowerCase() : "";
-      const matchesSearchQuery =
-        title.includes(searchQuery) ||
-        abstract.includes(searchQuery) ||
-        authors.includes(searchQuery);
-
-      // Filter by annotation types
-      // When ALL boxes checked → show everything (including papers with no type value)
-      const annotationType = record["Annotation Types"]
-        ? record["Annotation Types"].toLowerCase()
-        : "";
-
-      const allAnnotationChecked = isTextualChecked && isGraphicalChecked;
-      const noneAnnotationChecked = !isTextualChecked && !isGraphicalChecked;
-      let matchesAnnotationType = true;
-      if (noneAnnotationChecked) {
-        matchesAnnotationType = false;
-      } else if (!allAnnotationChecked) {
-        if (isTextualChecked) {
-          matchesAnnotationType = annotationType.includes("textual");
-        } else {
-          matchesAnnotationType = annotationType.includes("graphical");
-        }
-      }
-
-      // Filter by annotation generation method
-      // When ALL boxes checked → show everything (including papers with no method value)
-      const annotationGenerationMethod = record["Annotation Generation Method"]
-        ? record["Annotation Generation Method"].trim().toLowerCase()
-        : "";
-
-      const allGenerationChecked =
-        isManualChecked && isAutomaticChecked && isSemiAutomaticChecked;
-      const noneGenerationChecked =
-        !isManualChecked && !isAutomaticChecked && !isSemiAutomaticChecked;
-      let matchesAnnotationGeneration = true;
-      if (noneGenerationChecked) {
-        matchesAnnotationGeneration = false;
-      } else if (!allGenerationChecked) {
-        matchesAnnotationGeneration =
-          (isManualChecked && annotationGenerationMethod.includes("manual")) ||
-          (isAutomaticChecked && annotationGenerationMethod === "automatic") ||
-          (isSemiAutomaticChecked &&
-            annotationGenerationMethod === "semi-automatic");
-      }
-
-      return (
-        matchesYear &&
-        (matchesVenue || matchesOtherVenue) &&
-        matchesOtherFields &&
-        matchesSearchQuery &&
-        matchesAnnotationType &&
-        matchesAnnotationGeneration
-      );
-    });
-
-    // Log the filtered data for debugging
-    console.log("Filtered Data:", filteredData);
-
-    // Apply sort from results bar
-    const sortSelect = document.getElementById("sort-select");
-    const sortVal = sortSelect ? sortSelect.value : "default";
-    if (sortVal === "year-desc") {
-      filteredData.sort(
-        (a, b) => parseInt(b["Year"] || 0) - parseInt(a["Year"] || 0),
-      );
-    } else if (sortVal === "year-asc") {
-      filteredData.sort(
-        (a, b) => parseInt(a["Year"] || 0) - parseInt(b["Year"] || 0),
-      );
-    } else if (sortVal === "title-asc") {
-      filteredData.sort((a, b) =>
-        (a["Title"] || "").localeCompare(b["Title"] || ""),
-      );
+  const exportMenu = $("#export");
+  exportMenu.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-export]");
+    if (!b) return;
+    exportMenu.open = false;
+    if (!results.length) return toast("No papers to export");
+    const n = results.length;
+    if (b.dataset.export === "csv") {
+      const rows = results.map((r) => ({
+        Title: r.title,
+        Authors: r.authors,
+        Year: r.year ?? "",
+        Venue: r.venue,
+        DOI: r.doi,
+        "Annotation types": r.types.join("; "),
+        "Generation method": r.gen.join("; "),
+        "Research areas": r.areas.join("; "),
+        "Annotation forms": r.subcats,
+        Abstract: r.abstract,
+        BibTeX: r.bibtex,
+      }));
+      download(`annotation-survey-${n}-papers.csv`, `﻿${Papa.unparse(rows)}`, "text/csv");
+    } else {
+      const bib = results.map((r) => r.bibtex).filter(Boolean).join("\n\n");
+      download(`annotation-survey-${n}-papers.bib`, `${bib}\n`, "application/x-bibtex");
     }
+    toast(`Exported ${plural(n, "paper")}`);
+  });
+  document.addEventListener("click", (e) => {
+    if (exportMenu.open && !exportMenu.contains(e.target)) exportMenu.open = false;
+  });
 
-    renderCards(filteredData); // Render the filtered records
+  // ── Toolbar ───────────────────────────────────────────────────
+  let typingTimer;
+  els.search.addEventListener("input", () => {
+    clearTimeout(typingTimer);
+    typingTimer = setTimeout(() => {
+      state.q = els.search.value.trim();
+      setTerms(state.q);
+      update({ typing: true });
+    }, 120);
+  });
+  els.search.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && els.search.value) {
+      e.stopPropagation();
+      els.search.value = "";
+      state.q = "";
+      setTerms("");
+      update();
+    }
+  });
+
+  els.sort.addEventListener("change", () => {
+    state.sort = els.sort.value;
+    update({ scroll: true });
+  });
+
+  $(".seg").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-view]");
+    if (!b) return;
+    state.view = b.dataset.view;
+    try {
+      localStorage.setItem("survey-view", state.view);
+    } catch (err) {}
+    syncControls();
+  });
+  try {
+    const v = localStorage.getItem("survey-view");
+    if (v === "grid" || v === "list") state.view = v;
+  } catch (err) {}
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "/" && !e.target.closest("input, textarea, select, [contenteditable]") && !els.detail.open) {
+      e.preventDefault();
+      els.search.focus();
+    }
+    if (e.key === "Escape" && els.filters.classList.contains("is-open")) closeFilters();
+  });
+
+  // ── Filters sheet (small screens) ─────────────────────────────
+  function openFilters() {
+    els.filters.classList.add("is-open");
+    els.scrim.hidden = false;
+    els.filtersOpen.setAttribute("aria-expanded", "true");
+    document.documentElement.classList.add("has-modal");
+    setTimeout(() => $("#filters-close").focus({ preventScroll: true }), 50);
   }
-
-  // Function to toggle dark mode with a smooth transition and update tooltip
-  function toggleDarkMode() {
-    const elements = document.querySelectorAll(
-      ".main-container, .filters-container, .content-container, #total-papers-container, #year-filter-container, #venue-filter-container, #other-filters-container, .filter-header, .card, .tag, .select-all-button, .triangle-button, #search-bar, .venue-filter, .other-filter, .abstract-div",
-    );
-
-    elements.forEach((element) => {
-      element.classList.toggle("dark-mode");
-    });
-
-    const isDarkMode = document.body.classList.toggle("dark-mode");
-    localStorage.setItem("darkMode", isDarkMode ? "enabled" : "disabled");
-
-    // Update tooltip based on mode
-    darkModeToggle.title = isDarkMode
-      ? "Switch to Light Mode"
-      : "Switch to Dark Mode";
+  function closeFilters() {
+    els.filters.classList.remove("is-open");
+    els.scrim.hidden = true;
+    els.filtersOpen.setAttribute("aria-expanded", "false");
+    document.documentElement.classList.remove("has-modal");
+    els.filtersOpen.focus({ preventScroll: true });
   }
+  els.filtersOpen.addEventListener("click", openFilters);
+  $("#filters-close").addEventListener("click", closeFilters);
+  els.filtersDone.addEventListener("click", () => {
+    closeFilters();
+    scrollToResults();
+  });
+  els.scrim.addEventListener("click", closeFilters);
+  matchMedia("(min-width: 901px)").addEventListener("change", (e) => {
+    if (e.matches && els.filters.classList.contains("is-open")) closeFilters();
+  });
 
-  // Function to play sound effects
-  function playSound(sound) {
-    sound.currentTime = 0;
-    sound.play();
-  }
+  // ── Theme ─────────────────────────────────────────────────────
+  $("#theme-toggle").addEventListener("click", () => {
+    const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
+    $("#theme-color-meta").setAttribute("content", next === "dark" ? "#0E1013" : "#F5F4F0");
+    try {
+      localStorage.setItem("survey-theme", next);
+    } catch (err) {}
+  });
 
-  // Default to dark mode unless user has a saved preference
-  if (!localStorage.getItem("darkMode")) {
-    document.body.classList.add("dark-mode");
-    darkModeToggle.checked = true;
-    localStorage.setItem("darkMode", "enabled");
-  } else if (localStorage.getItem("darkMode") === "enabled") {
-    darkModeToggle.checked = true;
-    if (!document.body.classList.contains("dark-mode")) toggleDarkMode();
-  }
-});
+  // Toolbar height feeds the sticky sidebar offset
+  const setToolbarH = () =>
+    document.documentElement.style.setProperty("--toolbar-h", `${$("#toolbar").offsetHeight}px`);
+  setToolbarH();
+  window.addEventListener("resize", setToolbarH);
+
+  fillTalk();
+  load();
+})();

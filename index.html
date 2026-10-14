@@ -3,208 +3,348 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="color-scheme" content="light dark" />
-  <title>Annotation Survey</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>A Survey on Annotations in Information Visualization · Paper Browser</title>
+  <meta name="description"
+    content="An interactive index of the papers reviewed in the IEEE TVCG survey on annotations in information visualization. Search and filter by research area, annotation type, generation method, venue, and year." />
+  <meta name="theme-color" id="theme-color-meta" content="#F5F4F0" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="A Survey on Annotations in Information Visualization" />
+  <meta property="og:description"
+    content="Browse every paper reviewed in the survey, by research area, annotation type, generation method, venue, and year." />
+  <meta property="og:image" content="images/teaser.jpg" />
+  <link rel="icon" href="images/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Inter:wght@400;500;600&display=swap"
+    rel="stylesheet" />
+  <script>
+    (() => {
+      const root = document.documentElement;
+      root.classList.add('js');
+      let theme = null;
+      try { theme = localStorage.getItem('survey-theme'); } catch (e) { }
+      if (theme !== 'light' && theme !== 'dark') {
+        theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+      root.dataset.theme = theme;
+      document.getElementById('theme-color-meta').setAttribute('content', theme === 'dark' ? '#0E1013' : '#F5F4F0');
+    })();
+  </script>
   <link rel="stylesheet" href="css/styles.css" />
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.6.0/nouislider.min.css" />
 </head>
 
 <body>
-  <a href="#cards-container" class="skip-link">Skip to papers</a>
+  <a href="#papers" class="skip-link">Skip to papers</a>
 
-  <!-- ── Header ─────────────────────────────────────────── -->
-  <header class="top" role="banner">
-    <div class="top__inner">
-      <div class="top__title">
-        <div class="title-row" style="display: flex; align-items: center; gap: 10px; white-space: nowrap;">
-          <h1 style="margin: 0;">Annotation Survey</h1>
-          <a href="https://ieeexplore.ieee.org/abstract/document/11130921" target="_blank" rel="noopener"
-            class="read-paper-btn-inline">
-            Read Paper
-          </a>
-        </div>
-        <p>
-          A Survey on Annotations in Information Visualization: Empirical
-          Insights, Applications, and Challenges
-        </p>
-        <p class="top__authors">
-          <strong>Md Dilshadur Rahman</strong>, Bhavana Doppalapudi, Ghulam Jilani Quadri, Paul Rosen
-          <br>
-          <em>IEEE Transactions on Visualization and Computer Graphics (TVCG)</em>
-        </p>
-      </div>
-
-      <div class="top__actions">
-        <div class="top__controls">
-          <div class="search-bar-container">
-            <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14"
-              height="14" aria-hidden="true">
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-            <input type="text" id="search-bar" placeholder="Search titles, abstracts, authors…" />
-          </div>
-
-          <button id="download-csv-button" class="btn" type="button">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"
-              style="vertical-align:middle;margin-right:5px;flex-shrink:0">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
-            Download CSV
-          </button>
-
-          <!-- Dark Mode Toggle -->
-          <div class="toggle-switch" title="Toggle dark mode">
-            <input type="checkbox" id="dark-mode-toggle" />
-            <label for="dark-mode-toggle" class="toggle-label">
-              <span class="toggle-inner"></span>
-              <span class="toggle-switch-icon sun">&#9728;</span>
-              <span class="toggle-switch-icon moon">&#9790;</span>
-            </label>
-          </div>
-        </div>
-      </div>
+  <!-- Top bar -->
+  <header class="bar">
+    <div class="wrap bar__inner">
+      <a class="mark" href="#top" aria-label="Annotation Survey, back to top">
+        <svg class="mark__glyph" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 18 L9 12 L13 15 L20 6" fill="none" stroke="currentColor" stroke-width="1.6"
+            stroke-linecap="round" stroke-linejoin="round" />
+          <circle cx="13" cy="15" r="3.4" fill="none" stroke="var(--warm)" stroke-width="1.3" />
+        </svg>
+        <span>Annotation Survey</span>
+      </a>
+      <nav class="bar__nav" aria-label="Page">
+        <a class="u quiet" href="#papers">Papers</a>
+        <a class="u quiet" href="#cite">Cite</a>
+        <a class="u quiet bar__ext" href="https://doi.org/10.1109/TVCG.2025.3600957" target="_blank"
+          rel="noopener">Paper<span aria-hidden="true">&nbsp;↗</span></a>
+        <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch color theme">
+          <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="4" />
+            <path
+              d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+          </svg>
+          <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" />
+          </svg>
+        </button>
+      </nav>
     </div>
   </header>
 
-  <!-- ── Main layout: sidebar + content ─────────────────── -->
-  <main role="main" class="layout">
-    <aside class="sidebar" aria-label="Filters">
-      <div class="sidebar__inner">
+  <main id="top">
+    <!-- Masthead -->
+    <section class="hero">
+      <div class="wrap">
+        <p class="eyebrow reveal" style="--d:0">
+          <span>Survey</span><span class="sep" aria-hidden="true">·</span><span>IEEE TVCG</span><span class="sep"
+            aria-hidden="true">·</span><span>2025</span>
+        </p>
+        <h1 class="hero__title reveal" style="--d:1">
+          A Survey on
+          <em class="annotated">Annotations<svg class="annotated__mark" viewBox="0 0 300 20" preserveAspectRatio="none"
+              aria-hidden="true">
+              <path d="M3 13 C 60 6, 120 16, 178 9 S 262 8, 297 12" />
+            </svg></em>
+          in Information Visualization
+        </h1>
+        <p class="hero__sub reveal" style="--d:2">Empirical Studies, Applications and Challenges</p>
+        <p class="hero__authors reveal" style="--d:3">
+          <a class="u" href="https://dilshadur.com/" target="_blank" rel="noopener">Md Dilshadur Rahman</a>,
+          Bhavana Doppalapudi, Ghulam Jilani Quadri, and Paul Rosen
+        </p>
 
-        <!-- Papers count + chart -->
-        <div id="total-papers-container" class="filter-container filter-container--chart">
-          <div class="filter-container__heading">
-            <span class="filter-container__label">Papers Selected</span>
-            <span id="total-papers" class="badge">0</span>
+        <div class="hero__grid">
+          <div class="hero__lede reveal" style="--d:4">
+            <p>
+              The survey reviews <strong data-stat="papers">191</strong> papers on how annotations are designed,
+              generated, and used in visualization. This page is an index of all of them. Search and filter by
+              research area, annotation type, generation method, venue, and year, then open any paper for its
+              abstract, DOI, and BibTeX.
+            </p>
+            <div class="hero__actions">
+              <a class="btn btn--solid" href="https://doi.org/10.1109/TVCG.2025.3600957" target="_blank"
+                rel="noopener">Read the paper<span aria-hidden="true">↗</span></a>
+              <a class="btn" href="#papers">Browse the papers<span aria-hidden="true">↓</span></a>
+              <button class="btn btn--ghost" type="button" data-copy="survey-bibtex">Copy citation</button>
+            </div>
+            <p class="talk" id="talk" hidden></p>
           </div>
-          <canvas id="papers-chart"></canvas>
+
+          <dl class="stats reveal" style="--d:5" aria-label="Survey at a glance">
+            <div><dt>Papers</dt><dd data-stat="papers">191</dd></div>
+            <div><dt>Years</dt><dd data-stat="years">1994–2024</dd></div>
+            <div><dt>Venues</dt><dd data-stat="venues">—</dd></div>
+            <div><dt>Research areas</dt><dd data-stat="areas">10</dd></div>
+          </dl>
         </div>
 
-        <!-- Year Range -->
-        <div id="year-filter-container" class="filter-container">
-          <div class="filter-container__heading">
-            <span class="filter-container__label">Year Range</span>
-            <span class="year-values">
-              <span id="year-min">1994</span>&ndash;<span id="year-max">2024</span>
-            </span>
+        <figure class="teaser reveal" style="--d:6">
+          <div class="sheet sheet--wide">
+            <img src="images/teaser.jpg" width="1252" height="320"
+              alt="The same COVID-19 line chart twice: on the left without annotations, on the right with text notes, arrows, and shaded periods marking the January 2021 peak, the Delta wave, and the Omicron wave." />
           </div>
-          <div id="year-range-slider"></div>
+          <figcaption>One chart, without <span class="smallcaps">(A)</span> and with <span
+              class="smallcaps">(B)</span> annotations.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- Paper browser -->
+    <section class="browser" id="papers" aria-labelledby="papers-heading">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="papers-heading">The <em>papers</em></h2>
+          <p class="section-head__note">Within a group, any checked option matches. Across groups, a paper must match
+            all of them.</p>
         </div>
 
-        <!-- Clear Filters Button -->
-        <div style="display: flex; justify-content: flex-end; margin-bottom: 10px;">
-          <button id="clear-filters-btn" class="btn btn--danger" type="button" style="width: 100%;">Clear
-            Filters</button>
+        <!-- Toolbar -->
+        <div class="toolbar" id="toolbar">
+          <div class="search">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="11" cy="11" r="7" />
+              <path d="M20 20l-3.5-3.5" />
+            </svg>
+            <input type="search" id="search" placeholder="Search titles, authors, abstracts, venues…"
+              autocomplete="off" spellcheck="false" aria-label="Search papers" />
+            <kbd class="search__kbd" aria-hidden="true">/</kbd>
+          </div>
+          <div class="toolbar__row">
+            <button class="btn btn--small filters-open" id="filters-open" type="button" aria-controls="filters"
+              aria-expanded="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 7h16M7 12h10M10 17h4" />
+              </svg>
+              Filters<span class="filters-open__n" id="filters-open-n" hidden></span>
+            </button>
+            <label class="select">
+              <span class="visually-hidden">Sort by</span>
+              <select id="sort">
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
+                <option value="title">Title, A–Z</option>
+                <option value="venue">Venue, A–Z</option>
+              </select>
+            </label>
+            <div class="seg" role="group" aria-label="Layout">
+              <button type="button" data-view="grid" aria-pressed="true" title="Grid">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="4" y="4" width="6.5" height="6.5" rx="1" />
+                  <rect x="13.5" y="4" width="6.5" height="6.5" rx="1" />
+                  <rect x="4" y="13.5" width="6.5" height="6.5" rx="1" />
+                  <rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1" />
+                </svg><span class="visually-hidden">Grid</span>
+              </button>
+              <button type="button" data-view="list" aria-pressed="false" title="List">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 6h16M4 12h16M4 18h16" />
+                </svg><span class="visually-hidden">List</span>
+              </button>
+            </div>
+            <details class="export" id="export">
+              <summary class="btn btn--small">Export<svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M7 10l5 5 5-5" />
+                </svg></summary>
+              <div class="export__menu">
+                <button type="button" data-export="csv">
+                  <span>Spreadsheet</span><small>CSV of the papers shown</small>
+                </button>
+                <button type="button" data-export="bib">
+                  <span>BibTeX</span><small>One .bib file of the papers shown</small>
+                </button>
+              </div>
+            </details>
+          </div>
         </div>
 
-        <!-- Scrollable filter groups -->
-        <div class="filter-sections-wrapper">
+        <div class="layout">
+          <!-- Filters -->
+          <aside class="filters" id="filters" aria-label="Filters">
+            <div class="filters__head">
+              <h3>Filters</h3>
+              <button class="filters__close" id="filters-close" type="button" aria-label="Close filters">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              </button>
+            </div>
+            <div class="filters__body" id="filters-body">
+              <fieldset class="facet" data-facet="cats">
+                <legend>Research area</legend>
+                <div class="facet__opts"></div>
+              </fieldset>
+              <fieldset class="facet" data-facet="types">
+                <legend>Annotation type</legend>
+                <div class="facet__opts"></div>
+              </fieldset>
+              <fieldset class="facet" data-facet="gen">
+                <legend>Generation method</legend>
+                <div class="facet__opts"></div>
+              </fieldset>
+              <fieldset class="facet" data-facet="venues">
+                <legend>Venue</legend>
+                <div class="facet__opts"></div>
+                <button class="facet__more" type="button" hidden></button>
+              </fieldset>
+              <fieldset class="facet facet--years">
+                <legend>Years</legend>
+                <div class="years">
+                  <label class="select select--small"><span class="visually-hidden">From year</span><select
+                      id="year-from"></select></label>
+                  <span class="years__to">to</span>
+                  <label class="select select--small"><span class="visually-hidden">To year</span><select
+                      id="year-to"></select></label>
+                </div>
+              </fieldset>
+            </div>
+            <div class="filters__foot">
+              <button class="btn btn--ghost btn--small" type="button" data-clear>Clear all</button>
+              <button class="btn btn--solid btn--small filters__done" id="filters-done" type="button">Show
+                papers</button>
+            </div>
+          </aside>
+          <div class="filters-scrim" id="filters-scrim" hidden></div>
 
-          <!-- Venues -->
-          <div id="venue-filter-container" class="filter-container">
-            <div class="filter-header">
-              <h4>Venues</h4>
-              <button class="select-all-button" id="select-all-venues">Deselect All</button>
+          <!-- Results -->
+          <div class="results">
+            <div class="timeline" id="timeline">
+              <div class="timeline__head">
+                <span class="label">Papers per year</span>
+                <button class="link" type="button" id="years-reset" hidden>All years</button>
+              </div>
+              <svg class="timeline__svg" id="timeline-svg" role="img" aria-label="Number of papers per year"></svg>
+              <p class="timeline__hint">Drag across the bars to choose a range of years. Click a bar for a single
+                year.</p>
+            </div>
+
+            <div class="status">
+              <p class="status__count" id="count" aria-live="polite">Loading papers…</p>
+              <div class="chips" id="chips"></div>
+            </div>
+
+            <div class="cards" id="cards" data-view="grid"></div>
+
+            <div class="empty" id="empty" hidden>
+              <p class="empty__title">No papers match these filters.</p>
+              <p>Try a broader search, or <button class="link" type="button" data-clear>clear all filters</button>.</p>
             </div>
           </div>
-
-          <!-- Categories -->
-          <div id="other-filters-container" class="filter-container">
-            <div class="filter-header">
-              <h4>Categories</h4>
-              <button class="select-all-button" id="select-all-types">Deselect All</button>
-            </div>
-          </div>
-
-          <!-- Annotation Types -->
-          <div id="annotation-filter-container" class="filter-container">
-            <div class="filter-header">
-              <h4>Annotation Types</h4>
-              <button class="select-all-button" id="select-all-annotation-types">Deselect All</button>
-            </div>
-            <div class="annotation-filter">
-              <label class="annotation-filter-item">
-                <input type="checkbox" id="textual-checkbox" class="annotation-checkbox" checked />
-                Textual
-              </label>
-              <label class="annotation-filter-item">
-                <input type="checkbox" id="graphical-checkbox" class="annotation-checkbox" checked />
-                Graphical
-              </label>
-            </div>
-          </div>
-
-          <!-- Annotation Generation -->
-          <div id="annotation-generation-filter-container" class="filter-container">
-            <div class="filter-header">
-              <h4>Annotation Generation</h4>
-              <button class="select-all-button" id="select-all-annotation-generation">Deselect All</button>
-            </div>
-            <div class="annotation-generation-filter">
-              <label class="annotation-generation-filter-item">
-                <input type="checkbox" id="manual-checkbox" class="annotation-generation-checkbox" checked />
-                Manual
-              </label>
-              <label class="annotation-generation-filter-item">
-                <input type="checkbox" id="automatic-checkbox" class="annotation-generation-checkbox" checked />
-                Automatic
-              </label>
-              <label class="annotation-generation-filter-item">
-                <input type="checkbox" id="semi-automatic-checkbox" class="annotation-generation-checkbox" checked />
-                Semi-automatic
-              </label>
-            </div>
-          </div>
-
-        </div><!-- /filter-sections-wrapper -->
-      </div><!-- /sidebar__inner -->
-    </aside>
-
-    <!-- ── Cards grid ───────────────────────────────────── -->
-    <div class="content">
-      <div class="results-bar" id="results-bar" aria-live="polite">
-        <span id="results-count">0 papers</span>
-        <div class="results-bar__right">
-          <label class="results-sort-label" for="sort-select">Sort:</label>
-          <select id="sort-select" class="results-sort-select" aria-label="Sort papers">
-            <option value="default">Default</option>
-            <option value="year-desc">Year ↓</option>
-            <option value="year-asc">Year ↑</option>
-            <option value="title-asc">Title A–Z</option>
-          </select>
         </div>
       </div>
-      <div class="cards-container" id="cards-container"></div>
-    </div>
+    </section>
+
+    <!-- Cite -->
+    <section class="cite" id="cite" aria-labelledby="cite-heading">
+      <div class="wrap cite__inner">
+        <div>
+          <h2 id="cite-heading">Cite the <em>survey</em></h2>
+          <p class="cite__ref">
+            Md Dilshadur Rahman, Bhavana Doppalapudi, Ghulam Jilani Quadri, and Paul Rosen.
+            A Survey on Annotations in Information Visualization: Empirical Studies, Applications and Challenges.
+            <em>IEEE Transactions on Visualization and Computer Graphics</em>, 31(12):10439–10456, 2025.
+            <a class="u" href="https://doi.org/10.1109/TVCG.2025.3600957" target="_blank"
+              rel="noopener">doi:10.1109/TVCG.2025.3600957</a>
+          </p>
+        </div>
+        <div class="bib">
+          <div class="bib__head">
+            <span class="label">BibTeX</span>
+            <button class="btn btn--small btn--ghost" type="button" data-copy="survey-bibtex">Copy</button>
+          </div>
+          <pre id="survey-bibtex">@article{rahman2025survey,
+  author  = {Rahman, Md Dilshadur and Doppalapudi, Bhavana and
+             Quadri, Ghulam Jilani and Rosen, Paul},
+  title   = {A Survey on Annotations in Information Visualization:
+             Empirical Studies, Applications and Challenges},
+  journal = {IEEE Transactions on Visualization and Computer Graphics},
+  year    = {2025},
+  volume  = {31},
+  number  = {12},
+  pages   = {10439--10456},
+  doi     = {10.1109/TVCG.2025.3600957}
+}</pre>
+        </div>
+      </div>
+    </section>
   </main>
 
-  <!-- ── Paper Detail Drawer ──────────────────────────── -->
-  <div class="drawer-overlay" id="drawer-overlay" aria-hidden="true">
-    <div class="drawer" id="paper-drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" tabindex="-1">
-      <div class="drawer__header">
-        <span class="drawer__header-label">Paper Details</span>
-        <button class="drawer__close" id="drawer-close" aria-label="Close panel">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <line x1="18" y1="6" x2="6" y2="18" />
-            <line x1="6" y1="6" x2="18" y2="18" />
+  <footer class="foot">
+    <div class="wrap foot__inner">
+      <p>The paper list comes from the survey's coding spreadsheet. <span id="data-source"></span></p>
+      <p>
+        <a class="u quiet" href="https://github.com/VIS-Annotations/annotation-survey" target="_blank"
+          rel="noopener">Source on GitHub</a>
+        <span class="sep" aria-hidden="true">·</span>
+        <a class="u quiet" href="#top">Back to top ↑</a>
+      </p>
+    </div>
+  </footer>
+
+  <!-- Paper detail -->
+  <dialog class="detail" id="detail" aria-labelledby="detail-title">
+    <div class="detail__bar">
+      <div class="detail__nav">
+        <button type="button" class="icon-btn" id="detail-prev" aria-label="Previous paper">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M15 6l-6 6 6 6" />
+          </svg>
+        </button>
+        <span class="detail__pos" id="detail-pos"></span>
+        <button type="button" class="icon-btn" id="detail-next" aria-label="Next paper">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M9 6l6 6-6 6" />
           </svg>
         </button>
       </div>
-      <div class="drawer__body" id="drawer-body"></div>
+      <button type="button" class="icon-btn" id="detail-close" aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
+      </button>
     </div>
-  </div>
+    <div class="detail__body" id="detail-body"></div>
+  </dialog>
 
-  <!-- Scripts -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.6.0/nouislider.min.js"></script>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <script src="js/script.js"></script>
 </body>
 
