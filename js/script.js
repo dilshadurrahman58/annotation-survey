@@ -100,6 +100,8 @@
   let detailPushed = false;
   const cardEls = new Map();
   const optValues = { cats: [], types: [], gen: [], venues: [] };
+  const optTotals = { cats: {}, types: {}, gen: {}, venues: {} };
+  const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   // ── Helpers ───────────────────────────────────────────────────
   const clean = (s) => (s == null ? "" : String(s)).replace(/\s+/g, " ").trim();
@@ -130,6 +132,11 @@
     String(s).replace(/[&<>"']/g, (c) =>
       ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
     );
+  const capture = (el, e) => {
+    try {
+      el.setPointerCapture(e.pointerId);
+    } catch (err) {}
+  };
   const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
   // Escape text and wrap search terms in <mark>, ignoring accents like the search does
@@ -261,6 +268,8 @@
     buildFacets();
     buildYearSelects();
     fillStats();
+    fillPlaceholder();
+    matchMedia("(max-width: 560px)").addEventListener("change", fillPlaceholder);
     // read the paper before the first render rewrites the URL
     const paper = new URLSearchParams(location.search).get("paper");
     readURL();
@@ -281,6 +290,14 @@
   }
 
   // ── Masthead figures ──────────────────────────────────────────
+  // a placeholder that fits the screen, with the real count
+  function fillPlaceholder() {
+    const short = matchMedia("(max-width: 560px)").matches;
+    els.search.placeholder = short
+      ? `Search ${records.length} papers`
+      : `Search ${records.length} papers by title, author, abstract, or venue`;
+  }
+
   function fillStats() {
     const venues = new Set(records.map((r) => r.venue).filter(Boolean));
     const areas = AREAS.filter((a) => records.some((r) => r.areas.includes(a.key)));
@@ -306,6 +323,10 @@
     optValues.gen = [...GENS, NONE].filter((v) => has("gen", v));
     const vc = count("venues");
     optValues.venues = [...vc.keys()].sort((a, b) => vc.get(b) - vc.get(a) || a.localeCompare(b));
+    FACETS.forEach((facet) => {
+      const m = count(facet);
+      optValues[facet].forEach((v) => (optTotals[facet][v] = m.get(v) || 0));
+    });
 
     FACETS.forEach((facet) => {
       const box = $(`.facet[data-facet="${facet}"] .facet__opts`);
@@ -318,6 +339,7 @@
             <span class="opt__box" aria-hidden="true"></span>
             <span class="opt__name">${esc(v)}</span>
             <span class="opt__n"></span>
+            <span class="opt__bar" aria-hidden="true"><i class="t"></i><i class="n"></i></span>
           </label>`;
         })
         .join("");
@@ -364,13 +386,13 @@
   const yearsActive = () => state.y0 != null || state.y1 != null;
 
   // ── Filtering ─────────────────────────────────────────────────
-  function matches(r, except) {
+  function matches(r, except, also) {
     for (const t of terms) if (!r.search.includes(t)) return false;
     for (const facet of FACETS) {
-      if (facet === except || !state[facet].size) continue;
+      if (facet === except || facet === also || !state[facet].size) continue;
       if (!r.f[facet].some((v) => state[facet].has(v))) return false;
     }
-    if (except !== "years" && yearsActive()) {
+    if (except !== "years" && also !== "years" && yearsActive()) {
       if (r.year == null || r.year < lo() || r.year > hi()) return false;
     }
     return true;
@@ -415,12 +437,15 @@
       const counts = new Map();
       pool.forEach((r) => r.f[facet].forEach((v) => counts.set(v, (counts.get(v) || 0) + 1)));
       const box = $(`.facet[data-facet="${facet}"]`);
+      const max = Math.max(1, ...Object.values(optTotals[facet]));
       $$(".opt", box).forEach((opt, i) => {
         const v = optValues[facet][i];
         const n = counts.get(v) || 0;
         const input = $("input", opt);
         input.checked = state[facet].has(v);
         $(".opt__n", opt).textContent = n;
+        $(".opt__bar .t", opt).style.width = `${(optTotals[facet][v] / max) * 100}%`;
+        $(".opt__bar .n", opt).style.width = `${(n / max) * 100}%`;
         opt.classList.toggle("is-zero", n === 0 && !input.checked);
         if (facet === "venues") opt.hidden = !venuesExpanded && i >= 6 && !input.checked;
       });
@@ -435,6 +460,7 @@
     els.yearTo.value = hi();
     els.yearsReset.hidden = !yearsActive();
     els.sort.value = state.sort;
+    $$("#sort-pills input").forEach((i) => (i.checked = i.value === state.sort));
     if (els.search.value !== state.q) els.search.value = state.q;
 
     const n = activeCount();
@@ -485,6 +511,7 @@
   function makeCard(r) {
     const el = document.createElement("article");
     el.className = "card";
+    el.dataset.id = r.id;
     el.innerHTML = `${thumbHTML(r, "card__sheet")}
       <div class="card__meta"><span class="year">${r.year ?? ""}</span><span class="sep" aria-hidden="true">·</span><span class="venue" title="${esc(VENUE_FULL[r.venue] || r.venue)}">${esc(r.venue)}</span></div>
       <div class="card__body">${cardBody(r)}</div>
@@ -496,10 +523,21 @@
     return el;
   }
 
+  const inView = (rect, margin = 120) => rect.bottom > -margin && rect.top < innerHeight + margin;
+
   let lastQ = "";
   function renderCards(first) {
     const qChanged = lastQ !== state.q;
     lastQ = state.q;
+    // remember where visible cards were, so they can glide to their new places
+    const animate = !first && !reduceMotion();
+    const before = new Map();
+    if (animate) {
+      for (const el of els.cards.children) {
+        const rect = el.getBoundingClientRect();
+        if (inView(rect)) before.set(el, rect);
+      }
+    }
     const frag = document.createDocumentFragment();
     results.forEach((r, i) => {
       let el = cardEls.get(r.id);
@@ -517,7 +555,34 @@
       frag.appendChild(el);
     });
     els.cards.replaceChildren(frag);
+    els.cards.removeAttribute("aria-busy");
     els.empty.hidden = results.length > 0;
+    if (animate) {
+      let k = 0;
+      for (const el of els.cards.children) {
+        const rect = el.getBoundingClientRect();
+        if (!inView(rect)) continue;
+        const was = before.get(el);
+        if (was) {
+          const dx = was.left - rect.left;
+          const dy = was.top - rect.top;
+          if (dx || dy) {
+            el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], {
+              duration: 480,
+              easing: "cubic-bezier(0.2, 0.7, 0.2, 1)",
+            });
+          }
+        } else {
+          el.animate(
+            [
+              { opacity: 0, transform: "translateY(10px) scale(0.985)" },
+              { opacity: 1, transform: "none" },
+            ],
+            { duration: 420, delay: Math.min(k++ * 22, 260), easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "backwards" },
+          );
+        }
+      }
+    }
     if (first) setTimeout(() => cardEls.forEach((el) => el.classList.remove("is-new")), 1200);
   }
 
@@ -587,9 +652,10 @@
     for (let i = 0; i < n; i++) {
       const y = minYear + i;
       const x = i * tl.step + (tl.step - bw) / 2;
-      html += `<g data-i="${i}"><rect class="bar-ghost" x="${x}" width="${bw}" y="${h - tl.padB}" height="0"/><rect class="bar-on" x="${x}" width="${bw}" y="${h - tl.padB}" height="0"/></g>`;
+      html += `<g data-i="${i}"><rect class="bar-ghost" x="${x}" width="${bw}" y="${h - tl.padB}" height="0"/><rect class="bar-on" x="${x}" width="${bw}" y="${h - tl.padB}" height="0"/><rect class="bar-preview" x="${x}" width="${bw}" y="${h - tl.padB}" height="0"/></g>`;
       const edge = i === 0 || i === n - 1;
-      const near = (y - minYear < 3 && i !== 0) || (maxYear - y < 3 && i !== n - 1);
+      const gap = Math.ceil(40 / tl.step);
+      const near = (y - minYear < gap && i !== 0) || (maxYear - y < gap && i !== n - 1);
       if (edge || (y % every === 0 && !near)) {
         const anchor = i === 0 ? "start" : i === n - 1 ? "end" : "middle";
         const tx = i === 0 ? x : i === n - 1 ? x + bw : x + bw / 2;
@@ -598,7 +664,7 @@
     }
     html += `<g class="tip" visibility="hidden"><rect class="tip-bg" rx="4" height="20"/><text class="tip-text" y="0"></text></g>`;
     svg.innerHTML = html;
-    tl.bars = $$("g[data-i]", svg).map((g) => ({ g, ghost: g.children[0], on: g.children[1] }));
+    tl.bars = $$("g[data-i]", svg).map((g) => ({ g, ghost: g.children[0], on: g.children[1], pre: g.children[2] }));
     tl.brush = $(".brush", svg);
     tl.tip = $(".tip", svg);
   }
@@ -618,22 +684,59 @@
     records.forEach((r) => {
       if (r.year != null && matches(r, "years")) tlCounts[r.year - minYear]++;
     });
-    const max = Math.max(1, ...tlCounts);
+    const pre = tl.preview ? tl.preview.counts : null;
+    const max = Math.max(1, ...tlCounts, ...(pre || []));
     const base = tl.h - tl.padB;
     const avail = base - tl.padT;
+    const height = (c) => (c ? Math.max(2, (c / max) * avail) : 0);
     tl.bars.forEach((b, i) => {
-      const c = tlCounts[i];
-      const bh = c ? Math.max(2, (c / max) * avail) : 0;
+      const bh = height(tlCounts[i]);
       const yr = minYear + i;
       const inRange = yr >= lo() && yr <= hi();
       setRect(b.ghost, base - bh, bh);
       setRect(b.on, inRange ? base - bh : base, inRange ? bh : 0);
+      const ph = pre ? height(pre[i]) : 0;
+      setRect(b.pre, base - ph, ph);
     });
     const inSel = tlCounts.reduce((s, c, i) => s + (minYear + i >= lo() && minYear + i <= hi() ? c : 0), 0);
     els.svg.setAttribute(
       "aria-label",
       `Papers per year from ${minYear} to ${maxYear}. ${yearsActive() ? `Selected ${lo()} to ${hi()}, ${plural(inSel, "paper")}.` : ""}`,
     );
+  }
+
+  // Hovering a filter option shows where its papers fall in time
+  const tlLabel = $("#timeline-label");
+  function previewTimeline(facet, value) {
+    if (!facet) {
+      if (!tl.preview) return;
+      tl.preview = null;
+      els.svg.classList.remove("is-previewing");
+      tlLabel.textContent = "Papers per year";
+      tlLabel.classList.remove("is-preview");
+      drawTimeline();
+      return;
+    }
+    const n = maxYear - minYear + 1;
+    const counts = new Array(n).fill(0);
+    let inRange = 0;
+    records.forEach((r) => {
+      if (r.year == null || !r.f[facet].includes(value) || !matches(r, "years", facet)) return;
+      counts[r.year - minYear]++;
+      if (r.year >= lo() && r.year <= hi()) inRange++;
+    });
+    tl.preview = { counts };
+    els.svg.style.setProperty("--preview-c", facet === "cats" ? `var(${AREA[value].color})` : "var(--accent)");
+    els.svg.classList.add("is-previewing");
+    const name = facet === "cats" ? AREA[value].short : value;
+    tlLabel.textContent = `${name} · ${plural(inRange, "paper")}`;
+    tlLabel.classList.add("is-preview");
+    drawTimeline();
+  }
+
+  // Hovering a paper marks its year
+  function markYear(year) {
+    tl.bars.forEach((b, i) => b.g.classList.toggle("is-mark", year != null && minYear + i === year));
   }
 
   function showTip(i) {
@@ -679,7 +782,7 @@
       start = idxAt(e);
       startX = e.clientX;
       dragging = false;
-      svg.setPointerCapture(e.pointerId);
+      capture(svg, e);
     });
     svg.addEventListener("pointermove", (e) => {
       const i = idxAt(e);
@@ -718,6 +821,39 @@
     els.yearsReset.addEventListener("click", () => setYears(minYear, maxYear));
   })();
 
+  (function wireLinking() {
+    let current = null;
+    els.filtersBody.addEventListener("pointerover", (e) => {
+      if (e.pointerType !== "mouse") return;
+      const opt = e.target.closest(".opt");
+      if (opt === current) return;
+      current = opt;
+      if (!opt) return previewTimeline(null);
+      previewTimeline(opt.closest(".facet").dataset.facet, opt.dataset.value);
+    });
+    els.filtersBody.addEventListener("pointerleave", () => {
+      current = null;
+      previewTimeline(null);
+    });
+    els.filtersBody.addEventListener("change", () => {
+      if (current) previewTimeline(current.closest(".facet").dataset.facet, current.dataset.value);
+    });
+
+    let hovered = null;
+    els.cards.addEventListener("pointerover", (e) => {
+      if (e.pointerType !== "mouse") return;
+      const card = e.target.closest(".card[data-id]");
+      if (card === hovered) return;
+      hovered = card;
+      const r = card && records.find((x) => x.id === card.dataset.id);
+      markYear(r ? r.year : null);
+    });
+    els.cards.addEventListener("pointerleave", () => {
+      hovered = null;
+      markYear(null);
+    });
+  })();
+
   // ── URL state ─────────────────────────────────────────────────
   function readURL() {
     const p = new URLSearchParams(location.search);
@@ -750,6 +886,9 @@
     history.replaceState(history.state, "", paramsFor(detailId));
   }
 
+  // opening and closing a paper adds history entries; the page itself should not jump
+  if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+
   window.addEventListener("popstate", () => {
     const paper = new URLSearchParams(location.search).get("paper");
     detailPushed = false;
@@ -765,6 +904,8 @@
     return results.some((r) => r.id === detailId) ? results : [...records].sort(SORTS[state.sort]);
   }
 
+  let openedFrom = null;
+  let skipReturn = false;
   function openDetail(id, { push = true } = {}) {
     const r = records.find((x) => x.id === id);
     if (!r) return;
@@ -778,6 +919,7 @@
       writeURL();
     }
     if (!wasOpen) {
+      openedFrom = id;
       els.detail.showModal();
       document.documentElement.classList.add("has-modal");
       els.detailBody.scrollTop = 0;
@@ -803,8 +945,20 @@
     detailId = null;
     detailPushed = false;
     writeURL();
-    const link = $(`.card__link[data-id="${CSS.escape(id)}"]`);
-    if (link) link.focus({ preventScroll: true });
+    if (skipReturn) return void (skipReturn = false);
+    const card = cardEls.get(id);
+    if (!card || !card.isConnected) return;
+    const rect = card.getBoundingClientRect();
+    const hidden = rect.top < $("#toolbar").offsetHeight || rect.bottom > innerHeight;
+    if (hidden) card.scrollIntoView({ block: "center" });
+    $(".card__link", card).focus({ preventScroll: true });
+    // mark where the reader is, if they browsed away from where they started
+    if (hidden || id !== openedFrom) {
+      card.classList.remove("is-flash");
+      void card.offsetWidth;
+      card.classList.add("is-flash");
+      setTimeout(() => card.classList.remove("is-flash"), 2100);
+    }
   }
   els.detail.addEventListener("close", finishClose);
 
@@ -874,6 +1028,7 @@
   els.detailPrev.addEventListener("click", () => step(-1));
   els.detailNext.addEventListener("click", () => step(1));
   $("#detail-close").addEventListener("click", closeDetail);
+  $("#detail-link").addEventListener("click", () => copy(location.href, "Link copied"));
   els.detail.addEventListener("click", (e) => {
     if (e.target === els.detail) closeDetail();
   });
@@ -896,6 +1051,7 @@
       FACETS.forEach((f) => state[f].clear());
       state.cats.add(area.dataset.area);
       state.y0 = state.y1 = null;
+      skipReturn = true;
       closeDetail();
       update();
       requestAnimationFrame(() => els.status.scrollIntoView({ behavior: "smooth", block: "start" }));
@@ -950,7 +1106,7 @@
   );
 
   const exportMenu = $("#export");
-  exportMenu.addEventListener("click", (e) => {
+  document.addEventListener("click", (e) => {
     const b = e.target.closest("[data-export]");
     if (!b) return;
     exportMenu.open = false;
@@ -1005,6 +1161,10 @@
     state.sort = els.sort.value;
     update({ scroll: true });
   });
+  $("#sort-pills").addEventListener("change", (e) => {
+    state.sort = e.target.value;
+    update();
+  });
 
   $(".seg").addEventListener("click", (e) => {
     const b = e.target.closest("[data-view]");
@@ -1043,6 +1203,47 @@
     document.documentElement.classList.remove("has-modal");
     els.filtersOpen.focus({ preventScroll: true });
   }
+  // Sheets with a handle can be pulled down to close
+  function dragToDismiss(handle, sheet, query, onDismiss) {
+    let y0 = null;
+    let dy = 0;
+    let t0 = 0;
+    handle.addEventListener("pointerdown", (e) => {
+      if (!matchMedia(query).matches || e.target.closest("button, a")) return;
+      y0 = e.clientY;
+      dy = 0;
+      t0 = performance.now();
+      capture(handle, e);
+      sheet.style.transition = "none";
+    });
+    handle.addEventListener("pointermove", (e) => {
+      if (y0 == null) return;
+      dy = Math.max(0, e.clientY - y0);
+      sheet.style.transform = `translateY(${dy}px)`;
+    });
+    const end = () => {
+      if (y0 == null) return;
+      y0 = null;
+      const speed = dy / Math.max(1, performance.now() - t0);
+      sheet.style.transition = "transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)";
+      if (dy > 110 || (dy > 30 && speed > 0.6)) {
+        sheet.style.transform = "translateY(100%)";
+        setTimeout(() => {
+          onDismiss();
+          sheet.style.transform = "";
+          sheet.style.transition = "";
+        }, 220);
+      } else {
+        sheet.style.transform = "";
+        setTimeout(() => (sheet.style.transition = ""), 300);
+      }
+    };
+    handle.addEventListener("pointerup", end);
+    handle.addEventListener("pointercancel", end);
+  }
+  dragToDismiss($(".filters__head"), els.filters, "(max-width: 900px)", closeFilters);
+  dragToDismiss($(".detail__bar"), els.detail, "(max-width: 700px)", closeDetail);
+
   els.filtersOpen.addEventListener("click", openFilters);
   $("#filters-close").addEventListener("click", closeFilters);
   els.filtersDone.addEventListener("click", () => {
@@ -1055,13 +1256,27 @@
   });
 
   // ── Theme ─────────────────────────────────────────────────────
-  $("#theme-toggle").addEventListener("click", () => {
+  $("#theme-toggle").addEventListener("click", (e) => {
     const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-    document.documentElement.dataset.theme = next;
-    $("#theme-color-meta").setAttribute("content", next === "dark" ? "#0E1013" : "#F5F4F0");
+    const apply = () => {
+      document.documentElement.dataset.theme = next;
+      $("#theme-color-meta").setAttribute("content", next === "dark" ? "#0E1013" : "#F5F4F0");
+    };
     try {
       localStorage.setItem("survey-theme", next);
     } catch (err) {}
+    if (!document.startViewTransition || reduceMotion()) return apply();
+    // the new theme spreads outward from the toggle
+    const r = e.currentTarget.getBoundingClientRect();
+    const x = r.left + r.width / 2;
+    const y = r.top + r.height / 2;
+    const radius = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
+    document.startViewTransition(apply).ready.then(() => {
+      document.documentElement.animate(
+        { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`] },
+        { duration: 650, easing: "cubic-bezier(0.2, 0.7, 0.2, 1)", pseudoElement: "::view-transition-new(root)" },
+      );
+    });
   });
 
   // Toolbar height feeds the sticky sidebar offset
