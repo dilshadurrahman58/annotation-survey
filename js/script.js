@@ -45,13 +45,6 @@
     "Computer Graphics and Applications": "IEEE Computer Graphics and Applications",
   };
 
-  // IEEE VIS 2026 talk for this survey (Boston, Eastern Time)
-  const TALK = {
-    end: new Date("2026-11-10T13:36:00-05:00"),
-    when: "Tue, Nov 10, 13:24 ET",
-    room: "Hall Essex North",
-    url: "https://ieeevis.org/year/2026/program/paper/9ee5993b-1fb5-45f5-9969-77a5d942929f",
-  };
 
   // ── Elements ──────────────────────────────────────────────────
   const $ = (sel, root = document) => root.querySelector(sel);
@@ -303,15 +296,6 @@
     set("areas", areas.length);
   }
 
-  function fillTalk() {
-    const el = $("#talk");
-    const link = `<a class="u" href="${TALK.url}" target="_blank" rel="noopener">IEEE VIS 2026</a>`;
-    el.innerHTML =
-      Date.now() < TALK.end.getTime()
-        ? `<span class="talk__dot" aria-hidden="true"></span><span>Talk at ${link}</span><span>${TALK.when}</span><span>${TALK.room}</span>`
-        : `<span>Presented at ${link}</span>`;
-    el.hidden = false;
-  }
 
   // ── Facets ────────────────────────────────────────────────────
   function buildFacets() {
@@ -1091,6 +1075,5 @@
   setToolbarH();
   window.addEventListener("resize", setToolbarH);
 
-  fillTalk();
   load();
 })();

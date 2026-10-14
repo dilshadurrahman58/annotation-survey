@@ -217,10 +217,6 @@ html.has-modal {
   color: var(--ink-3);
 }
 
-.smallcaps {
-  font-size: 0.86em;
-  letter-spacing: 0.04em;
-}
 
 .sep {
   color: var(--ink-3);
@@ -583,28 +579,6 @@ html[data-theme="dark"] .theme-toggle .i-moon {
   margin-top: 26px;
 }
 
-.talk {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 10px;
-  margin: 22px 0 0 !important;
-  font-size: 14px !important;
-  color: var(--ink-3) !important;
-}
-
-.talk__dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--warm);
-  transform: translateY(-1px);
-}
-
-.talk a {
-  color: var(--ink-2);
-}
 
 .stats {
   display: grid;
@@ -635,17 +609,6 @@ html[data-theme="dark"] .theme-toggle .i-moon {
   letter-spacing: -0.01em;
 }
 
-.teaser {
-  margin: 56px 0 0;
-}
-
-.teaser figcaption {
-  margin-top: 14px;
-  font-family: var(--serif);
-  font-style: italic;
-  font-size: 14px;
-  color: var(--ink-3);
-}
 
 /* paper sheet */
 .sheet {
@@ -656,14 +619,6 @@ html[data-theme="dark"] .theme-toggle .i-moon {
   overflow: hidden;
 }
 
-.sheet--wide {
-  padding: clamp(6px, 1.2vw, 14px);
-}
-
-.sheet--wide img {
-  width: 100%;
-  height: auto;
-}
 
 /* entry motion */
 .js .reveal {
@@ -2106,7 +2061,7 @@ html[data-theme="dark"] .theme-toggle .i-moon {
   }
 
   .hero {
-    padding: 44px 0 56px;
+    padding: 44px 0 48px;
   }
 
   .hero__grid {
@@ -2136,25 +2091,6 @@ html[data-theme="dark"] .theme-toggle .i-moon {
     font-size: 26px;
   }
 
-  .teaser {
-    margin-top: 40px;
-  }
-
-  /* the wide figure scrolls sideways rather than shrinking past legibility */
-  .teaser .sheet--wide {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-  }
-
-  .teaser .sheet--wide::-webkit-scrollbar {
-    display: none;
-  }
-
-  .teaser .sheet--wide img {
-    width: 640px;
-    max-width: none;
-  }
 
   .section-head {
     padding-top: 40px;
